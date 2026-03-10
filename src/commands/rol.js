@@ -1,0 +1,237 @@
+// src/commands/rol.js
+// /rol crear  — crea un rol para una serie en el servidor de lectores
+// /rol mensaje — publica/actualiza el mensaje de reacción para obtener roles
+
+const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { Projects } = require('../utils/storage');
+const fs = require('fs-extra');
+const path = require('path');
+
+const ROLES_FILE = './data/reaction_roles.json';
+const ROLES_CHANNEL_ID = '1328526832328511488';
+
+// ── Storage para reaction roles ───────────────────────────────────────────────
+function loadRolesData() {
+  try {
+    if (fs.existsSync(ROLES_FILE)) return fs.readJsonSync(ROLES_FILE);
+  } catch { }
+  return { messageId: null, roles: [] };
+  // roles: [{ projectId, projectName, roleId, emoji }]
+}
+
+function saveRolesData(data) {
+  fs.ensureDirSync('./data');
+  fs.writeJsonSync(ROLES_FILE, data, { spaces: 2 });
+}
+
+const data = new SlashCommandBuilder()
+  .setName('rol')
+  .setDescription('Gestión de roles de series')
+  .addSubcommand(sub =>
+    sub.setName('crear')
+      .setDescription('Crea un rol para una serie y lo vincula al proyecto')
+      .addStringOption(o =>
+        o.setName('proyecto').setDescription('Proyecto al que vincular el rol').setRequired(true).setAutocomplete(true)
+      )
+      .addStringOption(o =>
+        o.setName('emoji').setDescription('Emoji para el mensaje de roles (ej: 🔥 o ID de emoji custom)').setRequired(true)
+      )
+
+  )
+  .addSubcommand(sub =>
+    sub.setName('mensaje')
+      .setDescription('Publica o actualiza el mensaje de reacción para obtener roles de series')
+      .addStringOption(o =>
+        o.setName('imagen').setDescription('URL de imagen a adjuntar al mensaje (opcional)')
+      )
+  )
+  .addSubcommand(sub =>
+    sub.setName('quitar')
+      .setDescription('Quita un rol de series del mensaje de reacción')
+      .addStringOption(o =>
+        o.setName('proyecto').setDescription('Proyecto a quitar').setRequired(true).setAutocomplete(true)
+      )
+  );
+
+async function autocomplete(interaction) {
+  const focused = interaction.options.getFocused().toLowerCase();
+  const choices = Projects.list()
+    .filter(p => p.name.toLowerCase().includes(focused) || p.id.includes(focused))
+    .slice(0, 25)
+    .map(p => ({ name: p.name, value: p.id }));
+  await interaction.respond(choices);
+}
+
+async function execute(interaction) {
+  const ALLOWED_ROLE = process.env.ANNOUNCER_ROLE_ID;
+  const hasRole = ALLOWED_ROLE
+    ? interaction.member.roles.cache.has(ALLOWED_ROLE)
+    : interaction.member.permissions.has('ManageGuild');
+  if (!hasRole) {
+    return interaction.reply({ content: '❌ No tienes permiso para usar este comando.', ephemeral: true });
+  }
+
+  const sub = interaction.options.getSubcommand();
+  if (sub === 'crear')  return handleCrear(interaction);
+  if (sub === 'mensaje') return handleMensaje(interaction);
+  if (sub === 'quitar') return handleQuitar(interaction);
+}
+
+// ── /rol crear ────────────────────────────────────────────────────────────────
+async function handleCrear(interaction) {
+  await interaction.deferReply({ ephemeral: true });
+
+  const projectId = interaction.options.getString('proyecto');
+  const emoji     = interaction.options.getString('emoji').trim();
+
+
+  const project = Projects.get(projectId);
+  if (!project) return interaction.editReply(`❌ Proyecto \`${projectId}\` no encontrado.`);
+
+  // Obtener el servidor de lectores
+  const readerGuildId = process.env.DISCORD_READER_GUILD_ID;
+  if (!readerGuildId) return interaction.editReply('❌ DISCORD_READER_GUILD_ID no configurado.');
+
+  const readerGuild = await interaction.client.guilds.fetch(readerGuildId).catch(() => null);
+  if (!readerGuild) return interaction.editReply('❌ No se pudo acceder al servidor de lectores.');
+
+  // Verificar si ya existe el rol
+  const rolesData = loadRolesData();
+  const existing = rolesData.roles.find(r => r.projectId === projectId);
+  if (existing) {
+    return interaction.editReply(`⚠️ El proyecto **${project.name}** ya tiene un rol vinculado (<@&${existing.roleId}>). Usa \`/rol quitar\` primero si quieres recrearlo.`);
+  }
+
+  // Crear el rol en el servidor de lectores
+  const roleColor = 0xFFFFFF; // Blanco
+  const newRole = await readerGuild.roles.create({
+    name: project.name,
+    color: roleColor,
+    mentionable: true,
+    reason: `Rol de serie creado por ${interaction.user.tag}`,
+  });
+
+  // Vincular al proyecto
+  project.readerRoleId = newRole.id;
+  Projects.save(project);
+
+  // Guardar en reaction roles
+  rolesData.roles.push({
+    projectId,
+    projectName: project.name,
+    roleId: newRole.id,
+    emoji,
+  });
+  saveRolesData(rolesData);
+
+  await interaction.editReply(
+    `✅ Rol **${project.name}** creado en el servidor de lectores.\n` +
+    `🎨 Color: Blanco\n` +
+    `😀 Emoji: ${emoji}\n` +
+    `📌 Vinculado al proyecto \`${projectId}\`\n\n` +
+    `Usa \`/rol mensaje\` para actualizar el mensaje de roles.`
+  );
+}
+
+// ── /rol mensaje ──────────────────────────────────────────────────────────────
+async function handleMensaje(interaction) {
+  await interaction.deferReply({ ephemeral: true });
+
+  const rolesData = loadRolesData();
+  if (!rolesData.roles.length) {
+    return interaction.editReply('❌ No hay roles de series configurados. Usa `/rol crear` primero.');
+  }
+
+  const readerGuildId = process.env.DISCORD_READER_GUILD_ID;
+  const readerGuild = await interaction.client.guilds.fetch(readerGuildId).catch(() => null);
+  if (!readerGuild) return interaction.editReply('❌ No se pudo acceder al servidor de lectores.');
+
+  const channel = await readerGuild.channels.fetch(ROLES_CHANNEL_ID).catch(() => null);
+  if (!channel) return interaction.editReply(`❌ No se encontró el canal de roles (${ROLES_CHANNEL_ID}).`);
+
+  const imagen = interaction.options.getString('imagen') || null;
+  const anunciosRoleId = '1480960597679149237';
+
+  // Construir el mensaje
+  const lines = [];
+  lines.push('@everyone');
+  lines.push('');
+  lines.push('## 🔔 ¡Elige tu Obra Favorita en Aeternum!');
+  lines.push('');
+  lines.push('Entre toda nuestra biblioteca, sabemos que cada lector tiene su historia favorita. Para que no te pierdas entre las estrellas y recibas solo los avisos que te interesan, hemos activado el **Sistema de Notificaciones por Obra**.');
+  lines.push('');
+  lines.push('**📖 ¿Cómo funciona?**');
+  lines.push('');
+  lines.push('Es muy sencillo. Solo tienes que reaccionar con el emoji correspondiente a la serie que sigues en la lista de abajo. Al hacerlo:');
+  lines.push('• Recibirás una mención automática cada vez que salga un nuevo capítulo de esa obra.');
+  lines.push('• Evitarás el "spam" de series que no estás leyendo.');
+  lines.push('• Podrás cambiar de opinión en cualquier momento quitando tu reacción.');
+  lines.push('');
+  lines.push('¡Personaliza tu experiencia y que la lectura sea eterna!');
+  lines.push('');
+  for (const r of rolesData.roles) {
+    lines.push(`${r.emoji} — **${r.projectName}**`);
+  }
+  if (anunciosRoleId) {
+    lines.push('');
+    lines.push(`⏳ Recuerda: Si quieres enterarte de absolutamente todo lo que pasa en el scan (eventos, reclutamiento, noticias generales), asegúrate de tener también el rol de <@&${anunciosRoleId}>`);
+  }
+  const content = lines.join('\n');
+
+  let message = null;
+
+  // Si ya existe un mensaje, editarlo
+  if (rolesData.messageId) {
+    message = await channel.messages.fetch(rolesData.messageId).catch(() => null);
+    if (message) {
+      await message.edit({ content });
+    } else {
+      message = null; // ya no existe, crear uno nuevo
+    }
+  }
+
+  // Crear mensaje nuevo si no había
+  if (!message) {
+    message = await channel.send({ content });
+    rolesData.messageId = message.id;
+    saveRolesData(rolesData);
+  }
+
+  // Sincronizar reacciones
+  // Adjuntar imagen si se proporcionó
+  if (imagen) {
+    try {
+      await message.edit({ content: message.content, files: [{ attachment: imagen, name: 'imagen.jpg' }] });
+    } catch { /* no crítico */ }
+  }
+
+  await message.reactions.removeAll().catch(() => {});
+  for (const r of rolesData.roles) {
+    try {
+      await message.react(r.emoji);
+      await new Promise(res => setTimeout(res, 500));
+    } catch (err) {
+      await interaction.followUp({ content: `⚠️ No se pudo reaccionar con ${r.emoji}: ${err.message}`, ephemeral: true });
+    }
+  }
+
+  await interaction.editReply('✅ Mensaje de roles publicado/actualizado correctamente.');
+}
+
+// ── /rol quitar ───────────────────────────────────────────────────────────────
+async function handleQuitar(interaction) {
+  await interaction.deferReply({ ephemeral: true });
+
+  const projectId = interaction.options.getString('proyecto');
+  const rolesData = loadRolesData();
+  const idx = rolesData.roles.findIndex(r => r.projectId === projectId);
+
+  if (idx === -1) return interaction.editReply(`❌ No hay rol configurado para \`${projectId}\`.`);
+
+  rolesData.roles.splice(idx, 1);
+  saveRolesData(rolesData);
+
+  await interaction.editReply(`✅ Rol de \`${projectId}\` quitado del mensaje. Usa \`/rol mensaje\` para actualizar.`);
+}
+
+module.exports = { data, execute, autocomplete };

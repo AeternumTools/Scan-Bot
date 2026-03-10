@@ -1,0 +1,27 @@
+{
+  "name": "scan-discord-bot",
+  "version": "2.0.0",
+  "description": "Bot de Discord para grupo de scanlation",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "deploy": "node src/deploy-commands.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.3",
+    "googleapis": "^140.0.1",
+    "axios": "^1.7.7",
+    "cheerio": "^1.0.0",
+    "node-cron": "^3.0.3",
+    "dotenv": "^16.4.5",
+    "google-auth-library": "^9.14.1",
+    "fs-extra": "^11.2.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
