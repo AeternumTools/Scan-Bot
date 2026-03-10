@@ -11,6 +11,7 @@ const {
 } = require('discord.js');
 
 const { Projects, LastChapters } = require('../utils/storage');
+const SUA = require('../utils/sua');
 const { COLORS }    = require('../../config/config');
 const tmo           = require('../services/tmoScraper');
 const colorcito     = require('../services/colorcito');
@@ -136,7 +137,7 @@ async function handleAdd(interaction) {
   const tagsRaw         = interaction.options.getString('tags') || '';
 
   if (!tmoUrl && !colIndex) {
-    return interaction.editReply('❌ Debes proporcionar al menos una URL (TMO o Colorcito).');
+    return interaction.editReply(SUA.proyecto.sinUrl);
   }
 
   // Generar ID slug a partir del nombre
@@ -147,7 +148,7 @@ async function handleAdd(interaction) {
     .replace(/^-|-$/g, '');
 
   if (Projects.get(id)) {
-    return interaction.editReply(`❌ Ya existe un proyecto con el ID \`${id}\`. Usa un nombre diferente.`);
+    return interaction.editReply(SUA.proyecto.yaExiste(id));
   }
 
   const project = {
@@ -224,7 +225,7 @@ async function handleRemove(interaction) {
   const project = Projects.get(id);
 
   if (!project) {
-    return interaction.reply({ content: `❌ Proyecto \`${id}\` no encontrado.`, ephemeral: true });
+    return interaction.reply({ content: SUA.proyecto.noEncontrado(id), ephemeral: true });
   }
 
   // Pedir confirmación
@@ -327,7 +328,7 @@ async function handleToggle(interaction) {
   const project = Projects.get(id);
 
   if (!project) {
-    return interaction.reply({ content: `❌ Proyecto \`${id}\` no encontrado.`, ephemeral: true });
+    return interaction.reply({ content: SUA.proyecto.noEncontrado(id), ephemeral: true });
   }
 
   project.active = !project.active;
@@ -345,7 +346,7 @@ async function handleSetStatus(interaction) {
   const project = Projects.get(id);
 
   if (!project) {
-    return interaction.reply({ content: `❌ Proyecto \`${id}\` no encontrado.`, ephemeral: true });
+    return interaction.reply({ content: SUA.proyecto.noEncontrado(id), ephemeral: true });
   }
 
   project.status = estado;

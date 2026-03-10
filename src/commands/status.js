@@ -3,6 +3,7 @@
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { Projects, LastChapters } = require('../utils/storage');
+const SUA = require('../utils/sua');
 const driveService  = require('../services/driveService');
 const { COLORS, CATEGORIES, CHAPTER_FOLDERS } = require('../../config/config');
 
@@ -111,9 +112,9 @@ async function sendSingleStatus(interaction, project) {
 
 async function sendAllStatus(interaction) {
   const projects = Projects.list().filter(p => p.active);
-  if (!projects.length) return interaction.editReply('ℹ️ No hay proyectos activos.');
+  if (!projects.length) return interaction.editReply(SUA.status.sinActivos);
 
-  await interaction.editReply({ content: `🔄 Consultando ${projects.length} proyectos...` });
+  await interaction.editReply({ content: SUA.status.consultando(projects.length) });
 
   const lines = [];
   for (const project of projects) {

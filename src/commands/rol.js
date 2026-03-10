@@ -4,6 +4,7 @@
 
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { Projects } = require('../utils/storage');
+const SUA = require('../utils/sua');
 const fs = require('fs-extra');
 const path = require('path');
 
@@ -71,7 +72,7 @@ async function execute(interaction) {
     ? interaction.member.roles.cache.has(ALLOWED_ROLE)
     : interaction.member.permissions.has('ManageGuild');
   if (!hasRole) {
-    return interaction.reply({ content: '❌ No tienes permiso para usar este comando.', ephemeral: true });
+    return interaction.reply({ content: SUA.sinPermisos, ephemeral: true });
   }
 
   const sub = interaction.options.getSubcommand();
@@ -142,7 +143,7 @@ async function handleMensaje(interaction) {
 
   const rolesData = loadRolesData();
   if (!rolesData.roles.length) {
-    return interaction.editReply('❌ No hay roles de series configurados. Usa `/rol crear` primero.');
+    return interaction.editReply(SUA.rol.sinRoles);
   }
 
   const readerGuildId = process.env.DISCORD_READER_GUILD_ID;
@@ -169,16 +170,16 @@ async function handleMensaje(interaction) {
   lines.push('');
   lines.push('## 🔔 ¡Elige tu Obra Favorita en Aeternum!');
   lines.push('');
-  lines.push('Entre toda nuestra biblioteca, sabemos que cada lector tiene su historia favorita. Para que no te pierdas entre las estrellas y recibas solo los avisos que te interesan, hemos activado el **Sistema de Notificaciones por Obra**.');
+  lines.push('Entre toda nuestra biblioteca, sabemos que cada lector tiene su historia favorita. Para que no te pierdas entre las estrellas y recibas solo los avisos que te interesan, hemos activado el **Sistema de Notificaciones por Obra** 🌸');
   lines.push('');
   lines.push('**📖 ¿Cómo funciona?**');
   lines.push('');
-  lines.push('Es muy sencillo. Solo tienes que reaccionar con el emoji correspondiente a la serie que sigues en la lista de abajo. Al hacerlo:');
-  lines.push('• Recibirás una mención automática cada vez que salga un nuevo capítulo de esa obra.');
-  lines.push('• Evitarás el "spam" de series que no estás leyendo.');
-  lines.push('• Podrás cambiar de opinión en cualquier momento quitando tu reacción.');
+  lines.push('Es muy sencillo, ¡te lo prometo! Solo tienes que reaccionar con el emoji de la serie que sigues. Al hacerlo:');
+  lines.push('• Recibirás una mención cada vez que salga un nuevo capítulo 💫');
+  lines.push('• No te llegará "spam" de series que no estás leyendo 🌿');
+  lines.push('• Puedes cambiar de opinión cuando quieras, solo quita tu reacción 🥺');
   lines.push('');
-  lines.push('¡Personaliza tu experiencia y que la lectura sea eterna!');
+  lines.push('¡Personaliza tu experiencia y que la lectura sea eterna! 🌸');
   lines.push('');
   for (const r of rolesData.roles) {
     lines.push(`${r.emoji} — **${r.projectName}**`);
@@ -237,7 +238,7 @@ async function handleMensaje(interaction) {
     }
   }
 
-  await interaction.editReply('✅ Mensaje de roles publicado/actualizado correctamente.');
+  await interaction.editReply(SUA.rol.mensajeActualizado);
 }
 
 // ── Exportar constantes para el handler de reacciones ────────────────────────
@@ -252,12 +253,12 @@ async function handleQuitar(interaction) {
   const rolesData = loadRolesData();
   const idx = rolesData.roles.findIndex(r => r.projectId === projectId);
 
-  if (idx === -1) return interaction.editReply(`❌ No hay rol configurado para \`${projectId}\`.`);
+  if (idx === -1) return interaction.editReply(SUA.rol.noVinculado(projectId));
 
   rolesData.roles.splice(idx, 1);
   saveRolesData(rolesData);
 
-  await interaction.editReply(`✅ Rol de \`${projectId}\` quitado del mensaje. Usa \`/rol mensaje\` para actualizar.`);
+  await interaction.editReply(SUA.rol.quitado(projectId));
 }
 
 module.exports = { data, execute, autocomplete };

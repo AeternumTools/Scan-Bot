@@ -2,6 +2,7 @@
 // /avisar — publica un aviso oficial de texto libre en el servidor de lectores
 
 const { SlashCommandBuilder } = require('discord.js');
+const SUA = require('../utils/sua');
 
 const data = new SlashCommandBuilder()
   .setName('avisar')
@@ -38,7 +39,7 @@ async function execute(interaction) {
     : interaction.member.permissions.has('ManageGuild');
 
   if (!hasRole) {
-    return interaction.reply({ content: '❌ No tienes permiso para usar este comando.', ephemeral: true });
+    return interaction.reply({ content: SUA.sinPermisos, ephemeral: true });
   }
 
   await interaction.deferReply({ ephemeral: true });
@@ -71,7 +72,7 @@ async function execute(interaction) {
   // ── Enviar al canal de anuncios ──────────────────────────────────────────
   const channelId = process.env.NOTICE_CHANNEL_ID || process.env.ANNOUNCEMENT_CHANNEL_ID;
   if (!channelId) {
-    return interaction.editReply('❌ No hay canal de anuncios configurado en el .env.');
+    return interaction.editReply(SUA.avisar.sinCanal);
   }
 
   let channel = null;
@@ -87,13 +88,13 @@ async function execute(interaction) {
   }
 
   if (!channel) {
-    return interaction.editReply('❌ No se encontró el canal de anuncios. Verifica ANNOUNCEMENT_CHANNEL_ID.');
+    return interaction.editReply(SUA.avisar.sinCanal);
   }
 
   const payload = { content };
   if (imagen) payload.files = [{ attachment: imagen, name: 'imagen.jpg' }];
   await channel.send(payload);
-  await interaction.editReply('✅ Aviso publicado correctamente.');
+  await interaction.editReply(SUA.avisar.publicado);
 }
 
 module.exports = { data, execute };

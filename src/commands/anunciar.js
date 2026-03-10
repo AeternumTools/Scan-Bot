@@ -3,6 +3,7 @@
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { Projects }  = require('../utils/storage');
+const SUA = require('../utils/sua');
 const { COLORS, SOURCES }    = require('../../config/config');
 const announcer     = require('../services/announcer');
 const tmo           = require('../services/tmoScraper');
@@ -60,7 +61,7 @@ async function execute(interaction) {
     ? interaction.member.roles.cache.has(ALLOWED_ROLE)
     : interaction.member.permissions.has('ManageGuild');
   if (!hasRole) {
-    return interaction.reply({ content: '❌ No tienes permiso para usar este comando.', ephemeral: true });
+    return interaction.reply({ content: SUA.sinPermisos, ephemeral: true });
   }
 
   await interaction.deferReply({ ephemeral: true });
@@ -79,7 +80,7 @@ async function execute(interaction) {
 
   const project = Projects.get(projectId);
   if (!project) {
-    return interaction.editReply({ content: `❌ Proyecto \`${projectId}\` no encontrado.` });
+    return interaction.editReply({ content: SUA.proyecto.noEncontrado(projectId) });
   }
 
   // ── Construir datos del capítulo ─────────────────────────────────────────
@@ -142,7 +143,7 @@ async function execute(interaction) {
   // ── Enviar anuncio ───────────────────────────────────────────────────────
   const channelId = project.announcementChannel || process.env.ANNOUNCEMENT_CHANNEL_ID;
   if (!channelId) {
-    return interaction.editReply({ content: '❌ No hay canal de anuncios configurado. Usa `/configurar canal`.' });
+    return interaction.editReply({ content: SUA.anunciar.sinCanal });
   }
 
   const message = await announcer.sendManualAnnouncement(
@@ -153,12 +154,10 @@ async function execute(interaction) {
   );
 
   if (!message) {
-    return interaction.editReply({ content: '❌ No se pudo enviar el anuncio. Verifica el canal configurado.' });
+    return interaction.editReply({ content: SUA.anunciar.errorEnvio });
   }
 
-  await interaction.editReply({
-    content: `✅ Anuncio publicado — **${project.name}** cap. ${capNum}`,
-  });
+  await interaction.editReply({ content: SUA.anunciar.enviado(project.name, capNum) });
 }
 
 module.exports = { data, execute, autocomplete };
