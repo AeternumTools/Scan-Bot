@@ -21,7 +21,7 @@ const { DriveCache } = require('../utils/storage');
 
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutos
 
-// Subcarpetas estándar que Sua crea dentro de cada capítulo
+// Subcarpetas estándar que Lumi crea dentro de cada capítulo
 // El orden importa: así aparecerán en Drive
 const STAGE_FOLDERS = ['Raw', 'Clean', 'Tradu', 'Final'];
 

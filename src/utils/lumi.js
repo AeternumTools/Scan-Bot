@@ -1,5 +1,5 @@
-// src/utils/sua.js
-// Mensajes con la personalidad de Sua — delicada, tímida, cariñosa
+// src/utils/lumi.js
+// Mensajes con la personalidad de Lumi — delicada, tímida, cariñosa
 
 // Selecciona un kaomoji aleatorio de una lista
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -13,7 +13,7 @@ const K = {
   dormir:   () => pick(['(；￣ω￣)', '(￣o￣) zzZ', '( ˘ω˘ )zzz', '(-_-)zzz']),
 };
 
-const SUA = {
+const LUMI = {
 
   // ── Generales ──────────────────────────────────────────────────────────────
   sinPermisos:  `...eh, lo siento mucho, pero no creo que puedas hacer eso ${K.timida()}`,
@@ -31,7 +31,7 @@ const SUA = {
       ? `¡**${name}** está activo de nuevo! Me alegra mucho ${K.feliz()}`
       : `**${name}** fue desactivado... lo recordaré con cariño ${K.tranqui()}`,
     estadoCambiado: (name, estado) => `Actualicé el estado de **${name}** a **${estado}** ${K.feliz()}`,
-    sinUrl:         `Necesito al menos una URL (TMO o Colorcito) para poder ayudarte ${K.disculpa()}`,
+    sinUrl:         `Necesito la URL de Colorcito para poder ayudarte ${K.disculpa()}`,
   },
 
   // ── Status ─────────────────────────────────────────────────────────────────
@@ -76,4 +76,4 @@ const SUA = {
 
 };
 
-module.exports = SUA;
+module.exports = LUMI;

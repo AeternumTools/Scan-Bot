@@ -24,7 +24,7 @@ async function execute(interaction) {
       .setTitle('🎫 ¡A-ayuda! Reportar un Error')
       .setDescription(
         'E-esto... hola. (〃>_<;〃) Si encontraste algún problemita en los capítulos, como globos vacíos o páginas que se ven cortadas, ¡por favor avísame!\n\n' +
-        'No quiero que nadie tenga una mala experiencia leyendo... (´；ω；`) Así que si presionas el botón de abajo, Sua te creará un canal privado para que me cuentes qué pasó y lo arreglemos juntitos. (◕‿◕✿)'
+        'No quiero que nadie tenga una mala experiencia leyendo... (´；ω；`) Así que si presionas el botón de abajo, Lumi te creará un canal privado para que me cuentes qué pasó y lo arreglemos juntitos. (◕‿◕✿)'
       )
       .setImage('https://media.tenor.com/DhZaHLNdMGAAAAAC/tenor.gif');
 
@@ -38,7 +38,7 @@ async function execute(interaction) {
 
     // Mención a everyone y envío del panel
     await interaction.channel.send({ 
-      content: '@everyone — 📢 ¡Sua al reporte! (〃ω〃)', 
+      content: '@everyone — 📢 ¡Lumi al reporte! (〃ω〃)', 
       embeds: [embed], 
       components: [row] 
     });
@@ -48,7 +48,7 @@ async function execute(interaction) {
   if (sub === 'reclutamiento') {
     const embed = new EmbedBuilder()
       .setColor(COLORS.info)
-      .setTitle('📝 ¡Sua busca nuevos amigos para el equipo!')
+      .setTitle('📝 ¡Lumi busca nuevos amigos para el equipo!')
       .setDescription(
         '¡H-hola! (´ ∀ ` *) ¿Te gustaría ayudarnos en Aeternum Translations? ¡Me haría muchísima ilusión trabajar contigo! (〃ω〃)\n\n' +
         'Buscamos personitas con ganas de aprender para ser:\n' +

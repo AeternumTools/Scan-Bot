@@ -2,7 +2,7 @@
 // /moderar — expulsar, banear y gestionar roles de staff
 
 const { SlashCommandBuilder } = require('discord.js');
-const SUA = require('../utils/sua');
+const LUMI = require('../utils/lumi');
 
 const MOD_ROLE_ID = '1368818622750789633';
 
@@ -81,7 +81,7 @@ function hasModeRole(member) {
 async function execute(interaction) {
   await interaction.deferReply({ ephemeral: true });
   if (!hasModeRole(interaction.member)) {
-    return interaction.editReply(SUA.mod.sinPermiso);
+    return interaction.editReply(LUMI.mod.sinPermiso);
   }
   const sub = interaction.options.getSubcommand();
   if (sub === 'expulsar')   return handleKick(interaction);
@@ -109,12 +109,12 @@ async function handleKick(interaction) {
     }
   }
 
-  if (!usuario) return interaction.editReply(SUA.mod.usuarioNoEncontrado);
-  if (!usuario.kickable) return interaction.editReply(SUA.mod.noPuedo);
+  if (!usuario) return interaction.editReply(LUMI.mod.usuarioNoEncontrado);
+  if (!usuario.kickable) return interaction.editReply(LUMI.mod.noPuedo);
   try {
     await usuario.kick(razon);
-    await interaction.editReply(SUA.mod.expulsado(usuario.user?.username || usuario.user?.tag || 'usuario', razon));
-  } catch { await interaction.editReply(SUA.mod.errorAccion('expulsar')); }
+    await interaction.editReply(LUMI.mod.expulsado(usuario.user?.username || usuario.user?.tag || 'usuario', razon));
+  } catch { await interaction.editReply(LUMI.mod.errorAccion('expulsar')); }
 }
 
 async function handleBan(interaction) {
@@ -140,24 +140,24 @@ async function handleBan(interaction) {
   if (!usuario && targetUser) {
     try {
       await interaction.guild.bans.create(targetUser.id, { reason: razon });
-      await interaction.editReply(SUA.mod.baneado(targetUser.username, razon));
-    } catch { await interaction.editReply(SUA.mod.errorAccion('banear')); }
+      await interaction.editReply(LUMI.mod.baneado(targetUser.username, razon));
+    } catch { await interaction.editReply(LUMI.mod.errorAccion('banear')); }
     return;
   }
 
-  if (!usuario) return interaction.editReply(SUA.mod.usuarioNoEncontrado);
-  if (!usuario.bannable) return interaction.editReply(SUA.mod.noPuedo);
+  if (!usuario) return interaction.editReply(LUMI.mod.usuarioNoEncontrado);
+  if (!usuario.bannable) return interaction.editReply(LUMI.mod.noPuedo);
   try {
     await usuario.ban({ reason: razon });
-    await interaction.editReply(SUA.mod.baneado(usuario.user?.username || usuario.user?.tag || 'usuario', razon));
-  } catch { await interaction.editReply(SUA.mod.errorAccion('banear')); }
+    await interaction.editReply(LUMI.mod.baneado(usuario.user?.username || usuario.user?.tag || 'usuario', razon));
+  } catch { await interaction.editReply(LUMI.mod.errorAccion('banear')); }
 }
 
 async function handleDarRol(interaction) {
   const usuario = interaction.options.getMember('usuario');
   const rolKey  = interaction.options.getString('rol');
   const rolInfo = STAFF_ROLES[rolKey];
-  if (!usuario) return interaction.editReply(SUA.mod.usuarioNoEncontrado);
+  if (!usuario) return interaction.editReply(LUMI.mod.usuarioNoEncontrado);
   try {
     const rolesToAdd = [rolInfo.id, ...rolInfo.extra];
     if (rolKey === 'staff') await usuario.roles.remove(STAFF_ROLES.nuevo.id).catch(() => {});
@@ -168,20 +168,20 @@ async function handleDarRol(interaction) {
     const extrasMsg = rolInfo.extra.length
       ? ` (+ ${rolInfo.extra.map(id => interaction.guild.roles.cache.get(id)?.name || id).join(', ')})`
       : '';
-    await interaction.editReply(SUA.mod.rolDado(usuario.user.username, rolInfo.name + extrasMsg));
-  } catch { await interaction.editReply(SUA.mod.errorAccion('asignar el rol')); }
+    await interaction.editReply(LUMI.mod.rolDado(usuario.user.username, rolInfo.name + extrasMsg));
+  } catch { await interaction.editReply(LUMI.mod.errorAccion('asignar el rol')); }
 }
 
 async function handleQuitarRol(interaction) {
   const usuario = interaction.options.getMember('usuario');
   const rolKey  = interaction.options.getString('rol');
   const rolInfo = STAFF_ROLES[rolKey];
-  if (!usuario) return interaction.editReply(SUA.mod.usuarioNoEncontrado);
+  if (!usuario) return interaction.editReply(LUMI.mod.usuarioNoEncontrado);
   try {
     const role = interaction.guild.roles.cache.get(rolInfo.id);
     if (role) await usuario.roles.remove(role);
-    await interaction.editReply(SUA.mod.rolQuitado(usuario.user.username, rolInfo.name));
-  } catch { await interaction.editReply(SUA.mod.errorAccion('quitar el rol')); }
+    await interaction.editReply(LUMI.mod.rolQuitado(usuario.user.username, rolInfo.name));
+  } catch { await interaction.editReply(LUMI.mod.errorAccion('quitar el rol')); }
 }
 
 module.exports = { data, execute };

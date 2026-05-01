@@ -170,7 +170,7 @@ const Tareas = {
     hasta: "ISO timestamp",      // fecha de retorno esperada
     estado: "activa" | "vencida" | "cancelada",
     creadoPor: "discord-user-id",  // puede ser el mismo usuario o un admin
-    notificado: false,             // true cuando Sua ya notificó al vencerse
+    notificado: false,             // true cuando Lumi ya notificó al vencerse
   }
 */
 
@@ -230,7 +230,7 @@ const Ausencias = {
     proyectoName: "Nombre",
     capitulo: "45",
     tipoError: "mal_subido" | "desorden" | "no_carga" | "otro",
-    plataforma: "tmo" | "colorcito",
+    plataforma: "colorcito",
     descripcion: "texto libre",
     channelId: "discord-channel-id",   // canal temporal creado
     estado: "abierto" | "cerrado",

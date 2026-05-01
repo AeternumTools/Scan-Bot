@@ -24,7 +24,7 @@ module.exports = {
   // ─── TEXTO FIJO AL PIE DE CADA ANUNCIO ────────────────────────────────────
   ANNOUNCEMENT_FOOTER: [
     '💬 Comparte tu bendición (o tus quejas) en el canal de discusión.',
-    '⚠️ Si no es TMO o COLORCITO, no es sagrado.',
+    '⚠️ Si no es COLORCITO, no es sagrado.',
   ],
 
   // ─── CATEGORÍAS DE PROYECTOS ───────────────────────────────────────────────
@@ -63,7 +63,6 @@ module.exports = {
 
   // ─── FUENTES ───────────────────────────────────────────────────────────────
   SOURCES: {
-    tmo:       { name: 'TMO',       emoji: '🔗', label: 'TMO',       url: 'https://zonatmo.com'       },
     colorcito: { name: 'COLORCITO', emoji: '🔗', label: 'COLORCITO', url: 'https://colorcitoscan.com' },
   },
 

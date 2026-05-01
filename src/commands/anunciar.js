@@ -2,10 +2,9 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { Projects }  = require('../utils/storage');
 const logger        = require('../utils/logger');
-const SUA           = require('../utils/sua');
+const LUMI          = require('../utils/lumi');
 const { COLORS, SOURCES } = require('../../config/config');
 const announcer     = require('../services/announcer');
-const tmo           = require('../services/tmoScraper');
 const colorcito     = require('../services/colorcito');
 
 const data = new SlashCommandBuilder()
@@ -27,17 +26,6 @@ const data = new SlashCommandBuilder()
   .addStringOption(o => o.setName('cleaners').setDescription('IDs separados por coma'))
   .addStringOption(o => o.setName('typeos').setDescription('IDs separados por coma'))
   .addStringOption(o => o.setName('otros').setDescription('IDs separados por coma'))
-  .addStringOption(o =>
-    o.setName('fuente').setDescription('Plataforma a anunciar')
-      .addChoices(
-        { name: 'Ambas',      value: 'ambas' },
-        { name: 'TMO',        value: 'tmo' },
-        { name: 'Colorcito',  value: 'colorcito' },
-      )
-  )
-  .addStringOption(o =>
-    o.setName('tmo_link').setDescription('Link directo al capítulo en TMO (opcional)')
-  )
   .addRoleOption(o =>
     o.setName('rol_extra').setDescription('Rol adicional a mencionar (opcional)')
   );
@@ -65,7 +53,7 @@ async function execute(interaction) {
     || interaction.member.permissions.has('ManageGuild');
 
   if (!hasRole) {
-    return interaction.reply({ content: SUA.sinPermisos, flags: 64 });
+    return interaction.reply({ content: LUMI.sinPermisos, flags: 64 });
   }
 
   await interaction.deferReply({ ephemeral: true });
@@ -78,52 +66,33 @@ async function execute(interaction) {
   const cleanersRaw    = interaction.options.getString('cleaners');
   const typeosRaw      = interaction.options.getString('typeos');
   const otrosRaw       = interaction.options.getString('otros');
-  const fuenteOpt      = interaction.options.getString('fuente') || 'ambas';
-  const tmoLinkManual  = interaction.options.getString('tmo_link');
   const rolMencion     = interaction.options.getRole('rol_extra');
 
   const project = Projects.get(projectId);
   if (!project) {
-    return interaction.editReply({ content: SUA.proyecto.noEncontrado(projectId) });
+    return interaction.editReply({ content: LUMI.proyecto.noEncontrado(projectId) });
   }
 
-  // ── Obtener URLs de capítulo en paralelo ──────────────────────────────────
-  let chapterUrlTmo   = null;
+  // ── Obtener URL de capítulo en Colorcito ──────────────────────────────────
   let chapterUrlColor = null;
   let isEcchi         = false;
 
-  const promises = [];
-
-  if ((fuenteOpt === 'tmo' || fuenteOpt === 'ambas') && project.sources?.tmo) {
-    promises.push(
-      tmo.getLatestChapter(project.sources.tmo)
-        .then(d => { if (d) chapterUrlTmo = d.chapterUrl; })
-        .catch(() => {})
-    );
+  if (project.sources?.colorcito) {
+    try {
+      const d = await colorcito.getLatestChapter(project.sources.colorcito);
+      if (d) {
+        chapterUrlColor = d.chapterUrl;
+        if (d.isEcchi) isEcchi = true;
+        logger.info('Anunciar', `Tags Colorcito: [${(d.tags||[]).join(', ')}] | isEcchi=${d.isEcchi}`);
+      }
+    } catch { /* no crítico */ }
   }
-
-  if ((fuenteOpt === 'colorcito' || fuenteOpt === 'ambas') && project.sources?.colorcito) {
-    promises.push(
-      colorcito.getLatestChapter(project.sources.colorcito)
-        .then(d => {
-          if (d) {
-            chapterUrlColor = d.chapterUrl;
-            if (d.isEcchi) isEcchi = true;
-            logger.info('Anunciar', `Tags Colorcito: [${(d.tags||[]).join(', ')}] | isEcchi=${d.isEcchi}`);
-          }
-        })
-        .catch(() => {})
-    );
-  }
-
-  await Promise.all(promises);
 
   const chapData = {
-    chapterNum:  capNum,
+    chapterNum:   capNum,
     chapterTitle: null,
-    chapterUrl:  tmoLinkManual || chapterUrlTmo || chapterUrlColor || null,
-    thumbnail:   portadaUrl || project.thumbnail || null,
-    urlTmo:      tmoLinkManual || chapterUrlTmo || null,
+    chapterUrl:   chapterUrlColor || null,
+    thumbnail:    portadaUrl || project.thumbnail || null,
     urlColorcito: project.sources?.colorcito || chapterUrlColor || null,
   };
 
@@ -156,40 +125,40 @@ async function execute(interaction) {
 
   // ── Nota Ecchi ────────────────────────────────────────────────────────────
   const ECCHI_FRASES = [
-    'S-s-sua no aprueba este capítulo... p-pero aquí está (〃>_<;〃)',
+    'S-s-Lumi no aprueba este capítulo... p-pero aquí está (〃>_<;〃)',
     'V-valk... ¿en serio me haces anunciar esto? (〃>_<;〃) Está bien... aquí va.',
     '¡V-valk! Yo no pedí trabajar en este scan para esto... (//∇//) pero bueno.',
     'E-esto fue idea de Valk, no mía. Yo solo soy la mensajera inocente (〃ω〃)',
     'Valk me dijo que anunciara esto con una sonrisa... (〃>_<;〃) no puedo.',
-    'A-ay... este capítulo es un poco... ya saben. Sua se tapa los ojos (//>/<//)',
-    'Sua deja esto aquí y se va sin mirar... (*ノωノ)',
-    'E-este... es un capítulo especial. Sua no dice nada más (//∇//)',
-    'P-para mayores de edad, dice la advertencia. Sua lo cumple sin chistar (〃ω〃)',
-    'S-sua no sabe nada de este capítulo. Nada. No lo vio. (〃>_<;〃)',
-    'E-eh... Sua solo es la mensajera, ¿de acuerdo? No la culpen (/ω＼)',
-    'A-aquí está el capítulo... Sua se esconde detrás del servidor (//∇//)',
-    'S-Sua pone esto aquí con los ojos cerrados. Con mucho cuidado. (〃ω〃)',
-    '...Sua miró sin querer y ahora está muy roja. Disfruten (*ノωノ)',
-    'E-este capítulo requiere discreción. Sua tiene mucha. Demasiada. (〃>_<;〃)',
-    'S-sua cumple con su deber aunque le cueste la tranquilidad (//>/<//)',
-    'A-ay... el equipo trabajó con mucho... esfuerzo en este. Sua también. Con los ojos cerrados (//∇//)',
-    'S-sua entrega esto sin preguntas ni comentarios. Buenos días (〃ω〃)',
-    'E-eh... Sua recomienda leer esto en privado. Por respeto. A Sua (〃>_<;〃)',
-    'A-aquí está. Sua ya cumplió. Sua se va a leer algo inocente ahora (*ノωノ)',
-    'S-sua no sabe qué pasa en este capítulo. Tampoco quiere saberlo (/ω＼)',
-    'E-el equipo puso mucho cariño aquí... y otras cosas. Sua no dice más (//∇//)',
-    'A-ay, ay, ay... Sua entrega esto y sale corriendo (〃>_<;〃)',
-    'S-sua se disculpa de antemano con los lectores sensibles. Y con ella misma (//>/<//)',
-    'E-este capítulo tiene contenido... interesante. Sua lo deja aquí sin más comentarios (〃ω〃)',
-    'S-sua solo trabaja aquí. No es responsable del contenido. Para nada (*ノωノ)',
-    'A-aquí lo tienen... Sua pide que no la juzguen por entregar esto (//∇//)',
-    'E-eh... Sua notó el tag. Sua finge que no notó el tag. Aquí está el capítulo (〃>_<;〃)',
-    'S-sua tiene valores. Sua también tiene trabajo. El trabajo ganó hoy (/ω＼)',
-    'A-ay... Sua va a necesitar un té después de esto. Aquí está el capítulo (〃ω〃)',
-    'E-el capítulo está listo. Sua también estará lista... en unos minutos... cuando se recupere (//>/<//)',
-    'S-sua entrega esto con dignidad. Poca, pero la hay (*ノωノ)',
-    'A-aquí está. Sua cierra los ojos, cuenta hasta diez y sigue con su día (〃>_<;〃)',
-    'E-este capítulo es para valientes. O curiosos. Sua no juzga... mucho (//∇//)',
+    'A-ay... este capítulo es un poco... ya saben. Lumi se tapa los ojos (//>/<//)',
+    'Lumi deja esto aquí y se va sin mirar... (*ノωノ)',
+    'E-este... es un capítulo especial. Lumi no dice nada más (//∇//)',
+    'P-para mayores de edad, dice la advertencia. Lumi lo cumple sin chistar (〃ω〃)',
+    'S-Lumi no sabe nada de este capítulo. Nada. No lo vio. (〃>_<;〃)',
+    'E-eh... Lumi solo es la mensajera, ¿de acuerdo? No la culpen (/ω＼)',
+    'A-aquí está el capítulo... Lumi se esconde detrás del servidor (//∇//)',
+    'S-Lumi pone esto aquí con los ojos cerrados. Con mucho cuidado. (〃ω〃)',
+    '...Lumi miró sin querer y ahora está muy roja. Disfruten (*ノωノ)',
+    'E-este capítulo requiere discreción. Lumi tiene mucha. Demasiada. (〃>_<;〃)',
+    'S-Lumi cumple con su deber aunque le cueste la tranquilidad (//>/<//)',
+    'A-ay... el equipo trabajó con mucho... esfuerzo en este. Lumi también. Con los ojos cerrados (//∇//)',
+    'Lumi entrega esto sin preguntas ni comentarios. Buenos días (〃ω〃)',
+    'E-eh... Lumi recomienda leer esto en privado. Por respeto. A Lumi (〃>_<;〃)',
+    'A-aquí está. Lumi ya cumplió. Lumi se va a leer algo inocente ahora (*ノωノ)',
+    'Lumi no sabe qué pasa en este capítulo. Tampoco quiere saberlo (/ω＼)',
+    'E-el equipo puso mucho cariño aquí... y otras cosas. Lumi no dice más (//∇//)',
+    'A-ay, ay, ay... Lumi entrega esto y sale corriendo (〃>_<;〃)',
+    'S-Lumi se disculpa de antemano con los lectores sensibles. Y con ella misma (//>/<//)',
+    'E-este capítulo tiene contenido... interesante. Lumi lo deja aquí sin más comentarios (〃ω〃)',
+    'Lumi solo trabaja aquí. No es responsable del contenido. Para nada (*ノωノ)',
+    'A-aquí lo tienen... Lumi pide que no la juzguen por entregar esto (//∇//)',
+    'E-eh... Lumi notó el tag. Lumi finge que no notó el tag. Aquí está el capítulo (〃>_<;〃)',
+    'Lumi tiene valores. Lumi también tiene trabajo. El trabajo ganó hoy (/ω＼)',
+    'A-ay... Lumi va a necesitar un té después de esto. Aquí está el capítulo (〃ω〃)',
+    'E-el capítulo está listo. Lumi también estará lista... en unos minutos... cuando se recupere (//>/<//)',
+    'Lumi entrega esto con dignidad. Poca, pero la hay (*ノωノ)',
+    'A-aquí está. Lumi cierra los ojos, cuenta hasta diez y sigue con su día (〃>_<;〃)',
+    'E-este capítulo es para valientes. O curiosos. Lumi no juzga... mucho (//∇//)',
   ];
 
   if (!global._ecchiUsadas) global._ecchiUsadas = [];
@@ -207,7 +176,7 @@ async function execute(interaction) {
   // ── Enviar ────────────────────────────────────────────────────────────────
   const channelId = project.announcementChannel || process.env.ANNOUNCEMENT_CHANNEL_ID;
   if (!channelId) {
-    return interaction.editReply({ content: SUA.anunciar.sinCanal });
+    return interaction.editReply({ content: LUMI.anunciar.sinCanal });
   }
 
   const message = await announcer.sendManualAnnouncement(
@@ -218,10 +187,10 @@ async function execute(interaction) {
   );
 
   if (!message) {
-    return interaction.editReply({ content: SUA.anunciar.errorEnvio });
+    return interaction.editReply({ content: LUMI.anunciar.errorEnvio });
   }
 
-  await interaction.editReply({ content: SUA.anunciar.enviado(project.name, capNum) });
+  await interaction.editReply({ content: LUMI.anunciar.enviado(project.name, capNum) });
 }
 
 module.exports = { data, execute, autocomplete };

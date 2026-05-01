@@ -1,9 +1,9 @@
 // src/commands/status.js
-// /status [proyecto] — estado completo con último capítulo en TMO y Colorcito
+// /status [proyecto] — estado completo con último capítulo en Colorcito
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { Projects, LastChapters } = require('../utils/storage');
-const SUA = require('../utils/sua');
+const LUMI = require('../utils/lumi');
 const driveService  = require('../services/driveService');
 const { COLORS, CATEGORIES, CHAPTER_FOLDERS } = require('../../config/config');
 
@@ -39,7 +39,7 @@ async function execute(interaction) {
 
   if (projectId) {
     const project = Projects.get(projectId);
-    if (!project) return interaction.editReply({ content: SUA.proyecto.noEncontrado(projectId) });
+    if (!project) return interaction.editReply({ content: LUMI.proyecto.noEncontrado(projectId) });
     return sendSingleStatus(interaction, project, forceRefresh);
   }
   return sendAllStatus(interaction, forceRefresh);
@@ -50,7 +50,6 @@ async function sendSingleStatus(interaction, project, forceRefresh = false) {
   const catInfo = CATEGORIES[project.category] || { emoji: '📖', name: '' };
 
   // Leer del caché — el monitor actualiza cada 25 min
-  const lastTmo   = LastChapters.get(project.id, 'tmo');
   const lastColor = LastChapters.get(project.id, 'colorcito');
 
   // Calcular antigüedad del dato
@@ -71,10 +70,6 @@ async function sendSingleStatus(interaction, project, forceRefresh = false) {
 
   // ── Plataformas ──────────────────────────────────────────────────────────
   const platformLines = [];
-  if (project.sources?.tmo) {
-    const cap = lastTmo ? `Cap. **${lastTmo.chapterNum}**${seenAgo(lastTmo)}` : 'Sin datos aún';
-    platformLines.push(`📖 **TMO:** ${cap}${lastTmo?.chapterUrl ? ` — [ver](${lastTmo.chapterUrl})` : ''}`);
-  }
   if (project.sources?.colorcito) {
     const cap = lastColor ? `Cap. **${lastColor.chapterNum}**${seenAgo(lastColor)}` : 'Sin datos aún';
     platformLines.push(`🎨 **Colorcito:** ${cap}${lastColor?.chapterUrl ? ` — [ver](${lastColor.chapterUrl})` : ''}`);
@@ -131,18 +126,17 @@ async function sendSingleStatus(interaction, project, forceRefresh = false) {
 
 async function sendAllStatus(interaction, forceRefresh = false) {
   const projects = Projects.list().filter(p => p.active);
-  if (!projects.length) return interaction.editReply(SUA.status.sinActivos);
+  if (!projects.length) return interaction.editReply(LUMI.status.sinActivos);
 
-  await interaction.editReply({ content: SUA.status.consultando(projects.length) });
+  await interaction.editReply({ content: LUMI.status.consultando(projects.length) });
 
   const lines = [];
   for (const project of projects) {
     const ds = await driveService.getProjectStatus(project.driveFolder, project.category, forceRefresh);
-    const lastTmo   = LastChapters.get(project.id, 'tmo');
     const lastColor = LastChapters.get(project.id, 'colorcito');
     const catInfo   = CATEGORIES[project.category] || { emoji: '📖' };
 
-    const lastCap = lastTmo?.chapterNum || lastColor?.chapterNum || '—';
+    const lastCap = lastColor?.chapterNum || '—';
 
     if (!ds.found) {
       lines.push(`${catInfo.emoji} **${project.name}** — ❓ Drive no encontrado | Último cap: ${lastCap}`);

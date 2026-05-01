@@ -1,15 +1,14 @@
 // src/services/monitor.js
-// Programador que verifica nuevos capítulos en TMO y Colorcito
+// Programador que verifica nuevos capítulos en Colorcito
 // y dispara anuncios en Discord cuando detecta cambios.
 
 const cron    = require('node-cron');
 const { Projects, LastChapters } = require('../utils/storage');
-const tmo       = require('./tmoScraper');
 const colorcito = require('./colorcito');
 const logger    = require('../utils/logger');
 const announcer = require('./announcer');
 
-const SOURCES = { tmo, colorcito };
+const SOURCES = { colorcito };
 
 let _client = null;
 let _job    = null;

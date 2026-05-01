@@ -2,7 +2,7 @@
 // /avisar — publica un aviso oficial de texto libre en el servidor de lectores
 
 const { SlashCommandBuilder } = require('discord.js');
-const SUA = require('../utils/sua');
+const LUMI = require('../utils/lumi');
 
 const data = new SlashCommandBuilder()
   .setName('avisar')
@@ -41,7 +41,7 @@ async function execute(interaction) {
     || interaction.member.permissions.has('ManageGuild');
 
   if (!hasRole) {
-    return interaction.reply({ content: SUA.sinPermisos, ephemeral: true });
+    return interaction.reply({ content: LUMI.sinPermisos, ephemeral: true });
   }
 
   if (interaction.replied || interaction.deferred) return;
@@ -87,7 +87,7 @@ async function execute(interaction) {
   const esStaff   = interaction.guildId === STAFF_GUILD_ID;
   const channelId = esStaff ? STAFF_NOTICE_ID : READER_NOTICE_ID;
 
-  if (!channelId) return interaction.editReply(SUA.avisar.sinCanal);
+  if (!channelId) return interaction.editReply(LUMI.avisar.sinCanal);
 
   let channel = null;
   if (esStaff) {
@@ -99,12 +99,12 @@ async function execute(interaction) {
     } catch { }
   }
 
-  if (!channel) return interaction.editReply(SUA.avisar.sinCanal);
+  if (!channel) return interaction.editReply(LUMI.avisar.sinCanal);
 
   const payload = { content, allowedMentions };
   if (imagen) payload.files = [{ attachment: imagen, name: 'imagen.jpg' }];
   await channel.send(payload);
-  await interaction.editReply(SUA.avisar.publicado);
+  await interaction.editReply(LUMI.avisar.publicado);
 }
 
 module.exports = { data, execute };

@@ -54,9 +54,7 @@ const data = new SlashCommandBuilder()
       .addStringOption(o =>
         o.setName('plataforma').setDescription('¿En qué plataforma?').setRequired(true)
           .addChoices(
-            { name: 'TMO',       value: 'tmo'       },
             { name: 'Colorcito', value: 'colorcito' },
-            { name: 'Ambas',     value: 'ambas'     },
           )
       )
       .addStringOption(o =>
@@ -189,7 +187,7 @@ async function handleAbrir(interaction) {
   Tickets.save(ticket);
 
   // Enviar resumen en el canal del ticket
-  const platLabel = { tmo: 'TMO', colorcito: 'Colorcito', ambas: 'TMO y Colorcito' };
+  const platLabel = { colorcito: 'Colorcito' };
   const embed = new EmbedBuilder()
     .setColor(COLORS.warning)
     .setTitle(`🎫 ${ticket.id} — ${project.name}`)
@@ -277,7 +275,7 @@ async function handleCerrar(interaction) {
       await usuario.send(pick([
         `¡Hola! ${K.feliz()} Te escribo de parte del equipo de Aeternum Translations. El error que reportaste en el cap. **${ticket.capitulo}** de **${ticket.proyectoName}** (\`${ticketId}\`) ya fue solucionado. ¡Gracias por avisarnos!`,
         `¡Buenas! ${K.tranqui()} El error del cap. **${ticket.capitulo}** de **${ticket.proyectoName}** que reportaste ya fue corregido. Muchas gracias por tu reporte, ¡nos ayuda muchísimo!`,
-        `¡Hola! Soy Sua, la asistente de Aeternum Translations ${K.feliz()} El problema que reportaste en **${ticket.proyectoName}** cap. **${ticket.capitulo}** ya quedó resuelto. ¡Gracias por tomarte el tiempo de avisarnos!`,
+        `¡Hola! Soy Lumi, la asistente de Aeternum Translations ${K.feliz()} El problema que reportaste en **${ticket.proyectoName}** cap. **${ticket.capitulo}** ya quedó resuelto. ¡Gracias por tomarte el tiempo de avisarnos!`,
       ])).catch(() => {/* DMs cerrados */});
     }
   } catch { /* usuario no encontrado */ }

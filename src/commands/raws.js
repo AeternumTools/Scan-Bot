@@ -3,7 +3,7 @@
 //
 // Flujo de /raws (escucha pasiva en el canal configurado):
 //   El usuario sube un .zip con nombre "NombreProyecto - NumeroCapitulo.zip"
-//   Sua lo descarga, descomprime en memoria, sube las imágenes a Drive
+//   Lumi lo descarga, descomprime en memoria, sube las imágenes a Drive
 //   en la carpeta Raw del capítulo correspondiente.
 //
 // Comandos slash:

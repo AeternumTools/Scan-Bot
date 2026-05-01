@@ -3,7 +3,7 @@
 // y delega el procesamiento a src/commands/raws.js.
 //
 // Este evento es independiente del agente (suaMention/suaAgent) — no necesita
-// mención a Sua, solo que el archivo llegue al canal correcto con el formato correcto.
+// mención a Lumi, solo que el archivo llegue al canal correcto con el formato correcto.
 
 const { Events } = require('discord.js');
 const { processRawsUpload } = require('../commands/raws');

@@ -1,7 +1,7 @@
 // src/commands/reclutar.js
 // /reclutar — sistema de reclutamiento
 // El candidato usa el comando en el canal de reclutamiento del servidor de lectores
-// Sua crea un canal temporal en el servidor de staff y guía al candidato
+// Lumi crea un canal temporal en el servidor de staff y guía al candidato
 // ────────────────────────────────────────────────────────────────────────────
 
 const { SlashCommandBuilder, EmbedBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');

@@ -40,12 +40,12 @@ function esSpam(message) {
   return false;
 }
 
-// ── Frases de Sua al banear ───────────────────────────────────────────────────
+// ── Frases de Lumi al banear ───────────────────────────────────────────────────
 const FRASES_SPAM = [
   `¡K-kyaa! ¡Alguien me inundó de mensajes! Ya lo baní... me asustaron mucho (〃>_<;〃)`,
   `¡E-eh! ¡Spam detectado! Ya lo saqué del servidor... qué susto me dieron (；￣ω￣)`,
   `¡A-ay! ¡Alguien estaba haciendo spam! Lo baní antes de que pudiera hacer más daño (╥_╥) ¡Qué nervios!`,
-  `¡Ya se fue el spam! Sua al rescate aunque le temblaron los cables (〃>_<;〃)`,
+  `¡Ya se fue el spam! Lumi al rescate aunque le temblaron los cables (〃>_<;〃)`,
   `D-detecté spam masivo y actué rápido... aunque me asusté bastante (；￣ω￣) Ya está baneado.`,
   `¡Me inundaron de links y me entró el pánico! Ya lo baní (╥_╥) Por favor que no vuelva a pasar...`,
   `Spam detectado y eliminado (〃>_<;〃) N-no me gustan estos momentos... pero alguien tiene que hacerlo.`,
@@ -109,7 +109,7 @@ module.exports = {
 
       try {
         await message.guild.members.ban(message.author.id, {
-          reason: 'Spam automático detectado por Sua (links/imágenes masivos)',
+          reason: 'Spam automático detectado por Lumi (links/imágenes masivos)',
           deleteMessageSeconds: 60, // borra los últimos 60 segundos de mensajes del usuario
         });
 
@@ -132,7 +132,7 @@ module.exports = {
         logger.error('AntiSpam', `No se pudo banear a ${username}: ${err.message}`);
         // Intentar al menos expulsar si el ban falla
         try {
-          await message.member.kick('Spam automático detectado por Sua');
+          await message.member.kick('Spam automático detectado por Lumi');
           await notificar(message.guild, message, username);
         } catch { /* si no puede ni expulsar, al menos loguear */ }
       }

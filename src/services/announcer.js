@@ -40,11 +40,7 @@ function buildAnnouncementText(project, chapData, options = {}) {
   lines.push(`Capítulo ${chapData.chapterNum}${chapData.chapterTitle ? `: ${chapData.chapterTitle}` : ''}`);
 
   const linkLines = [];
-  if (project.sources?.tmo && chapData.urlTmo) {
-    linkLines.push(`🔗 ${SOURCES.tmo.label}: <${chapData.urlTmo}>`);
-  } else if (project.sources?.tmo) {
-    linkLines.push(`🔗 ${SOURCES.tmo.label}: <${project.sources.tmo}>`);
-  }
+
   if (project.sources?.colorcito && chapData.urlColorcito) {
     linkLines.push(`🔗 ${SOURCES.colorcito.label}: <${chapData.urlColorcito}>`);
   } else if (project.sources?.colorcito) {
@@ -102,7 +98,7 @@ async function sendAnnouncement(client, project, chapData, source) {
 
   const chapDataFull = {
     ...chapData,
-    urlTmo:       source === 'tmo'       ? chapData.chapterUrl : null,
+
     urlColorcito: source === 'colorcito' ? chapData.chapterUrl : null,
   };
 

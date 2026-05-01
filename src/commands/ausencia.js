@@ -248,7 +248,7 @@ async function handleLista(interaction) {
     .setColor(COLORS.warning)
     .setTitle('🏖️ Ausencias activas del staff')
     .setTimestamp()
-    .setFooter({ text: 'Sua las revisa cada hora (っ˘ω˘ς)' });
+    .setFooter({ text: 'Lumi las revisa cada hora (っ˘ω˘ς)' });
 
   for (const a of ausencias) {
     const hastaTs = Math.floor(new Date(a.hasta).getTime() / 1000);

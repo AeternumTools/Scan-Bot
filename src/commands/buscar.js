@@ -1,61 +1,34 @@
 // src/commands/buscar.js
-// /buscar <nombre> <fuente> — busca un manga en TMO o Colorcito y muestra resultados
+// /buscar <nombre> — busca un manga en Colorcito y muestra resultados
 
 const {
   SlashCommandBuilder,
   EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
 } = require('discord.js');
 
-const tmo       = require('../services/tmoScraper');
 const colorcito = require('../services/colorcito');
 const { COLORS, SOURCES } = require('../../config/config');
 
 const data = new SlashCommandBuilder()
   .setName('buscar')
-  .setDescription('Busca un manga/manhwa en las plataformas monitoreadas')
+  .setDescription('Busca un manga/manhwa en Colorcito')
   .addStringOption(o =>
     o.setName('nombre').setDescription('Nombre del manga o manhwa').setRequired(true)
-  )
-  .addStringOption(o =>
-    o.setName('fuente')
-      .setDescription('Plataforma donde buscar')
-      .setRequired(true)
-      .addChoices(
-        { name: '📖 TuMangaOnline (TMO)', value: 'tmo' },
-        { name: '🎨 Colorcito',           value: 'colorcito' },
-        { name: '🔍 Ambas',               value: 'ambas' },
-      )
   );
 
 async function execute(interaction) {
   await interaction.deferReply();
 
-  const query  = interaction.options.getString('nombre');
-  const fuente = interaction.options.getString('fuente');
+  const query = interaction.options.getString('nombre');
 
-  let results = [];
-
-  if (fuente === 'tmo' || fuente === 'ambas') {
-    const tmoResults = await tmo.searchManga(query);
-    results.push(...tmoResults.map(r => ({ ...r, source: 'tmo' })));
-  }
-
-  if (fuente === 'colorcito' || fuente === 'ambas') {
-    const colorResults = await colorcito.searchManga(query);
-    results.push(...colorResults.map(r => ({ ...r, source: 'colorcito' })));
-  }
+  const colorResults = await colorcito.searchManga(query);
+  const results = colorResults.slice(0, 10).map(r => ({ ...r, source: 'colorcito' }));
 
   if (!results.length) {
     return interaction.editReply({
-      content: `🔍 No se encontraron resultados para **"${query}"** en ${fuente === 'ambas' ? 'ninguna plataforma' : fuente.toUpperCase()}.`,
+      content: `🔍 No se encontraron resultados para **"${query}"** en Colorcito.`,
     });
   }
-
-  // Limitar a 10 resultados
-  results = results.slice(0, 10);
 
   const lines = results.map((r, i) => {
     const sourceInfo = SOURCES[r.source];

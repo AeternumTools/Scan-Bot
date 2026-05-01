@@ -7,13 +7,11 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  StringSelectMenuBuilder,
 } = require('discord.js');
 
 const { Projects, LastChapters } = require('../utils/storage');
-const SUA = require('../utils/sua');
+const LUMI = require('../utils/lumi');
 const { COLORS }    = require('../../config/config');
-const tmo           = require('../services/tmoScraper');
 const colorcito     = require('../services/colorcito');
 const driveService  = require('../services/driveService');
 
@@ -36,7 +34,6 @@ const data = new SlashCommandBuilder()
             { name: 'Joints (Colaboracion)', value: 'joints'  },
           )
       )
-      .addStringOption(o => o.setName('tmo_url').setDescription('URL del proyecto en TuMangaOnline (opcional)'))
       .addStringOption(o => o.setName('colorcito_url').setDescription('URL del proyecto en Colorcito (opcional)'))
       .addStringOption(o => o.setName('creditos_default').setDescription('Créditos por defecto del equipo (opcional, ej: "Trad: Ana | Clean: Bob")'))
       .addStringOption(o => o.setName('portada_id').setDescription('ID del mensaje de Discord con la portada (clic derecho al mensaje → Copiar ID)'))
@@ -116,7 +113,6 @@ async function handleAdd(interaction) {
   const name            = interaction.options.getString('nombre');
   const driveFolder     = interaction.options.getString('drive_folder');
   const categoria       = interaction.options.getString('categoria');
-  const tmoUrl          = interaction.options.getString('tmo_url');
   const colIndex        = interaction.options.getString('colorcito_url');
   const creditosDefault = interaction.options.getString('creditos_default') || null;
   const portadaId       = interaction.options.getString('portada_id') || null;
@@ -136,8 +132,8 @@ async function handleAdd(interaction) {
   }
   const tagsRaw         = interaction.options.getString('tags') || '';
 
-  if (!tmoUrl && !colIndex) {
-    return interaction.editReply(SUA.proyecto.sinUrl);
+  if (!colIndex) {
+    return interaction.editReply(LUMI.proyecto.sinUrl);
   }
 
   // Generar ID slug a partir del nombre
@@ -148,7 +144,7 @@ async function handleAdd(interaction) {
     .replace(/^-|-$/g, '');
 
   if (Projects.get(id)) {
-    return interaction.editReply(SUA.proyecto.yaExiste(id));
+    return interaction.editReply(LUMI.proyecto.yaExiste(id));
   }
 
   const project = {
@@ -156,7 +152,6 @@ async function handleAdd(interaction) {
     name,
     category: categoria,
     sources: {
-      tmo:       tmoUrl   || null,
       colorcito: colIndex || null,
     },
     driveFolder,
@@ -176,7 +171,6 @@ async function handleAdd(interaction) {
   // Intentar obtener thumbnail Y guardar capítulo actual como "ya visto"
   // para que el bot no anuncie capítulos que ya existían al añadir el proyecto
   const scrapers = [];
-  if (tmoUrl)    scrapers.push({ source: 'tmo',       scraper: tmo,       url: tmoUrl   });
   if (colIndex)  scrapers.push({ source: 'colorcito', scraper: colorcito, url: colIndex });
 
   for (const { source, scraper, url } of scrapers) {
@@ -207,7 +201,6 @@ async function handleAdd(interaction) {
       { name: 'Estado', value: '📖 En curso',    inline: true },
       { name: 'Fuentes',
         value: [
-          tmoUrl   ? `• TMO: ${tmoUrl}`           : null,
           colIndex ? `• Colorcito: ${colIndex}`    : null,
         ].filter(Boolean).join('\n'),
       },
@@ -225,7 +218,7 @@ async function handleRemove(interaction) {
   const project = Projects.get(id);
 
   if (!project) {
-    return interaction.reply({ content: SUA.proyecto.noEncontrado(id), ephemeral: true });
+    return interaction.reply({ content: LUMI.proyecto.noEncontrado(id), ephemeral: true });
   }
 
   // Pedir confirmación
@@ -245,7 +238,7 @@ async function handleRemove(interaction) {
   collector.on('collect', async i => {
     if (i.customId === `confirm_delete_${id}`) {
       Projects.delete(id);
-      await i.update({ content: SUA.proyecto.eliminado(project.name), components: [] });
+      await i.update({ content: LUMI.proyecto.eliminado(project.name), components: [] });
     } else {
       await i.update({ content: '❌ Cancelado.', components: [] });
     }
@@ -259,14 +252,14 @@ async function handleList(interaction) {
   const projects = Projects.list();
 
   if (!projects.length) {
-    return interaction.editReply(SUA.proyecto.sinProyectos);
+    return interaction.editReply(LUMI.proyecto.sinProyectos);
   }
 
   const statusIcon = { ongoing: '📖', completed: '✅', hiatus: '⏸️', dropped: '❌' };
 
   const lines = projects.map(p =>
     `${p.active ? '🟢' : '🔴'} ${statusIcon[p.status] || '❓'} **${p.name}** \`${p.id}\`\n` +
-    `   ↳ ${[p.sources.tmo ? 'TMO' : null, p.sources.colorcito ? 'Colorcito' : null].filter(Boolean).join(' + ')} | Drive: ${p.driveFolder}`
+    `   ↳ ${[p.sources.colorcito ? 'Colorcito' : null].filter(Boolean).join(' + ')} | Drive: ${p.driveFolder}`
   );
 
   const embed = new EmbedBuilder()
@@ -286,7 +279,7 @@ async function handleInfo(interaction) {
   const project = Projects.get(id);
 
   if (!project) {
-    return interaction.editReply({ content: SUA.proyecto.noEncontrado(id) });
+    return interaction.editReply({ content: LUMI.proyecto.noEncontrado(id) });
   }
 
   // Obtener estado de Drive
@@ -306,7 +299,6 @@ async function handleInfo(interaction) {
       { name: 'Activo',  value: project.active ? '✅ Sí' : '❌ No',   inline: true },
       { name: 'Fuentes',
         value: [
-          project.sources.tmo       ? `📖 [TMO](${project.sources.tmo})`           : null,
           project.sources.colorcito ? `🎨 [Colorcito](${project.sources.colorcito})`: null,
         ].filter(Boolean).join('\n') || 'Ninguna',
         inline: false,
@@ -328,7 +320,7 @@ async function handleToggle(interaction) {
   const project = Projects.get(id);
 
   if (!project) {
-    return interaction.reply({ content: SUA.proyecto.noEncontrado(id), ephemeral: true });
+    return interaction.reply({ content: LUMI.proyecto.noEncontrado(id), ephemeral: true });
   }
 
   project.active = !project.active;
@@ -346,7 +338,7 @@ async function handleSetStatus(interaction) {
   const project = Projects.get(id);
 
   if (!project) {
-    return interaction.reply({ content: SUA.proyecto.noEncontrado(id), ephemeral: true });
+    return interaction.reply({ content: LUMI.proyecto.noEncontrado(id), ephemeral: true });
   }
 
   project.status = estado;

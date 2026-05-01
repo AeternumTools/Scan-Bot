@@ -1,6 +1,6 @@
 // src/services/webhookServer.js
 // Servidor HTTP mínimo para recibir el webhook de Railway
-// Railway → POST /webhook → Sua notifica en canal de registros
+// Railway → POST /webhook → Lumi notifica en canal de registros
 // ────────────────────────────────────────────────────────────────────────────
 
 const http   = require('http');
@@ -44,7 +44,7 @@ function buildDeployMessage(payload) {
   const commitHash  = deployment?.meta?.commitHash?.slice(0, 7) || '???????';
   const author      = deployment?.meta?.commitAuthor || 'Desconocido';
   const envName     = environment?.name || 'producción';
-  const projectName = project?.name || 'Sua';
+  const projectName = project?.name || 'Lumi';
 
   if (status === 'SUCCESS' || status === 'COMPLETE') {
     return pick([

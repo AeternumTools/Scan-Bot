@@ -3,13 +3,12 @@
 
 const { SlashCommandBuilder } = require('discord.js');
 const { Projects, LastChapters } = require('../utils/storage');
-const tmo       = require('../services/tmoScraper');
 const colorcito = require('../services/colorcito');
-const SUA       = require('../utils/sua');
+const LUMI      = require('../utils/lumi');
 
 const data = new SlashCommandBuilder()
   .setName('sincronizar')
-  .setDescription('Actualiza el caché de capítulos consultando TMO y Colorcito')
+  .setDescription('Actualiza el caché de capítulos consultando Colorcito')
   .addStringOption(o =>
     o.setName('proyecto')
       .setDescription('Proyecto específico (vacío = todos)')
@@ -35,7 +34,7 @@ async function execute(interaction) {
   const hasRole  = interaction.member.roles.cache.has(MOD_ROLE)
     || interaction.member.permissions.has('ManageGuild');
   if (!hasRole) {
-    return interaction.editReply({ content: SUA.sinPermisos });
+    return interaction.editReply({ content: LUMI.sinPermisos });
   }
 
   const projectId = interaction.options.getString('proyecto');
@@ -54,30 +53,27 @@ async function execute(interaction) {
   // Ejecutar en background sin bloquear
   (async () => {
     let actualizados = 0;
-    const scrapers = { tmo, colorcito };
 
     for (const project of projects) {
-      for (const [source, scraper] of Object.entries(scrapers)) {
-        const url = project.sources?.[source];
-        if (!url) continue;
-        try {
-          const data = await scraper.getLatestChapter(url);
-          if (!data?.chapterNum) continue;
+      const url = project.sources?.colorcito;
+      if (!url) continue;
+      try {
+        const data = await colorcito.getLatestChapter(url);
+        if (!data?.chapterNum) continue;
 
-          const cached = LastChapters.get(project.id, source);
-          const liveN  = parseFloat(String(data.chapterNum).replace(',', '.'));
-          const cachedN = cached ? parseFloat(String(cached.chapterNum).replace(',', '.')) : -1;
+        const cached = LastChapters.get(project.id, 'colorcito');
+        const liveN  = parseFloat(String(data.chapterNum).replace(',', '.'));
+        const cachedN = cached ? parseFloat(String(cached.chapterNum).replace(',', '.')) : -1;
 
-          if (liveN > cachedN) {
-            LastChapters.set(project.id, source, {
-              chapterNum: data.chapterNum,
-              chapterUrl: data.chapterUrl,
-            });
-            actualizados++;
-          }
-        } catch { }
-        await new Promise(r => setTimeout(r, 1500));
-      }
+        if (liveN > cachedN) {
+          LastChapters.set(project.id, 'colorcito', {
+            chapterNum: data.chapterNum,
+            chapterUrl: data.chapterUrl,
+          });
+          actualizados++;
+        }
+      } catch { }
+      await new Promise(r => setTimeout(r, 1500));
     }
 
     try {

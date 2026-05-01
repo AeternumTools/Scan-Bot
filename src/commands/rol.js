@@ -4,7 +4,7 @@
 
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { Projects } = require('../utils/storage');
-const SUA = require('../utils/sua');
+const LUMI = require('../utils/lumi');
 const fs = require('fs-extra');
 const path = require('path');
 
@@ -74,7 +74,7 @@ async function execute(interaction) {
     ? interaction.member.roles.cache.has(ALLOWED_ROLE)
     : interaction.member.permissions.has('ManageGuild');
   if (!hasRole) {
-    return interaction.reply({ content: SUA.sinPermisos, ephemeral: true });
+    return interaction.reply({ content: LUMI.sinPermisos, ephemeral: true });
   }
 
   const sub = interaction.options.getSubcommand();
@@ -145,7 +145,7 @@ async function handleMensaje(interaction) {
 
   const rolesData = loadRolesData();
   if (!rolesData.roles.length) {
-    return interaction.editReply(SUA.rol.sinRoles);
+    return interaction.editReply(LUMI.rol.sinRoles);
   }
 
   const readerGuildId = process.env.DISCORD_READER_GUILD_ID;
@@ -269,7 +269,7 @@ async function handleMensaje(interaction) {
     }
   }
 
-  await interaction.editReply(SUA.rol.mensajeActualizado);
+  await interaction.editReply(LUMI.rol.mensajeActualizado);
 }
 
 // ── Exportar constantes para el handler de reacciones ────────────────────────
@@ -284,12 +284,12 @@ async function handleQuitar(interaction) {
   const rolesData = loadRolesData();
   const idx = rolesData.roles.findIndex(r => r.projectId === projectId);
 
-  if (idx === -1) return interaction.editReply(SUA.rol.noVinculado(projectId));
+  if (idx === -1) return interaction.editReply(LUMI.rol.noVinculado(projectId));
 
   rolesData.roles.splice(idx, 1);
   saveRolesData(rolesData);
 
-  await interaction.editReply(SUA.rol.quitado(projectId));
+  await interaction.editReply(LUMI.rol.quitado(projectId));
 }
 
 module.exports = { data, execute, autocomplete };

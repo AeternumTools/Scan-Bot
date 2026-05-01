@@ -1,16 +1,15 @@
 // src/commands/salud.js
-// /salud — Sua se autodiagnostica y reporta su estado
+// /salud — Lumi se autodiagnostica y reporta su estado
 
 const { SlashCommandBuilder } = require('discord.js');
-const SUA = require('../utils/sua');
+const LUMI = require('../utils/lumi');
 const { Projects } = require('../utils/storage');
 const driveService = require('../services/driveService');
-const tmoScraper = require('../services/tmoScraper');
 const colorcito = require('../services/colorcito');
 
 const data = new SlashCommandBuilder()
   .setName('salud')
-  .setDescription('Sua revisa cómo está y te cuenta');
+  .setDescription('Lumi revisa cómo está y te cuenta');
 
 async function execute(interaction) {
   await interaction.deferReply();
@@ -55,27 +54,6 @@ async function execute(interaction) {
   checks.push(`✅ Tengo **${proyectos.length}** proyecto(s) registrado(s), **${activos}** activo(s) (っ˘ω˘ς)`);
 
   // ── 5. Scrapers ───────────────────────────────────────────────────────────
-  const proyectoConTmo = proyectos.find(p => p.sources?.tmo);
-  if (proyectoConTmo) {
-    try {
-      const result = await Promise.race([
-        tmoScraper.getLatestChapter(proyectoConTmo.sources.tmo),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
-      ]);
-      if (result) {
-        checks.push(`✅ El scraper de TMO responde bien (◕‿◕✿)`);
-      } else {
-        checks.push(`⚠️ El scraper de TMO respondió pero sin datos... (〃>_<;〃)`);
-        todosBien = false;
-      }
-    } catch {
-      checks.push(`❌ No pude conectarme con TMO... (;ω;)`);
-      todosBien = false;
-    }
-  } else {
-    checks.push(`ℹ️ No hay proyectos con TMO para probar el scraper`);
-  }
-
   const proyectoConColor = proyectos.find(p => p.sources?.colorcito);
   if (proyectoConColor) {
     try {

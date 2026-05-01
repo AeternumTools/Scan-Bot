@@ -1,4 +1,4 @@
-name: Notificar Deploy a Sua
+name: Notificar Deploy a Lumi
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
           echo "message=$(echo '${{ github.event.head_commit.message }}' | head -1)" >> $GITHUB_OUTPUT
           echo "author=${{ github.event.head_commit.author.name }}" >> $GITHUB_OUTPUT
 
-      - name: Notificar deploy exitoso a Sua
+      - name: Notificar deploy exitoso a Lumi
         if: success()
         run: |
           curl -X POST "${{ secrets.SUA_WEBHOOK_URL }}" \
@@ -27,7 +27,7 @@ jobs:
             -d '{
               "status": "SUCCESS",
               "type": "deploy",
-              "project": { "name": "Sua Bot" },
+              "project": { "name": "Lumi Bot" },
               "environment": { "name": "produccion" },
               "deployment": {
                 "meta": {
@@ -38,7 +38,7 @@ jobs:
               }
             }'
 
-      - name: Notificar deploy fallido a Sua
+      - name: Notificar deploy fallido a Lumi
         if: failure()
         run: |
           curl -X POST "${{ secrets.SUA_WEBHOOK_URL }}" \
@@ -47,7 +47,7 @@ jobs:
             -d '{
               "status": "FAILED",
               "type": "deploy",
-              "project": { "name": "Sua Bot" },
+              "project": { "name": "Lumi Bot" },
               "environment": { "name": "produccion" },
               "deployment": {
                 "meta": {

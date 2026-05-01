@@ -17,13 +17,10 @@ if (missing.length) {
 }
 
 // ── Crear cliente de Discord ──────────────────────────────────────────────────
+// Sin MessageContent ni GuildMessages — ya no hay agente ni scraping de menciones
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMessageReactions,
-    GatewayIntentBits.MessageContent,
-
   ],
   partials: [Partials.Message, Partials.Reaction, Partials.User],
 });
@@ -57,11 +54,6 @@ for (const file of eventFiles) {
   }
   logger.info('Loader', `Evento cargado: ${event.name}`);
 }
-
-// ── Reaction Roles ───────────────────────────────────────────────────────────
-const reactionRoles = require('./events/reactionRoles');
-client.on('messageReactionAdd',    (reaction, user) => reactionRoles.handleReaction(reaction, user, true));
-client.on('messageReactionRemove', (reaction, user) => reactionRoles.handleReaction(reaction, user, false));
 
 // ── Manejo de errores globales ────────────────────────────────────────────────
 client.on('error', err => logger.error('Discord', err.message));
