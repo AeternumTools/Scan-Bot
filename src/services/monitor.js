@@ -74,7 +74,7 @@ async function checkProject(project) {
   }
 }
 
-async function checkAllProjects() {
+async function checkAllProjects(sendSummary = false) {
   const projects = Projects.list().filter(p => p.active);
 
   if (!projects.length) {
@@ -89,6 +89,24 @@ async function checkAllProjects() {
   }
 
   logger.info('Monitor', 'Ciclo completado ✓');
+
+  // Solo mandar resumen si fue llamado manualmente
+  if (sendSummary) {
+    const recordsChannelId = process.env.RECORDS_CHANNEL_ID;
+    if (recordsChannelId && _client) {
+      try {
+        const channel = await _client.channels.fetch(recordsChannelId).catch(() => null);
+        if (channel) {
+          await channel.send(
+            `🔍 **Verificación manual completada** — <t:${Math.floor(Date.now() / 1000)}:T>\n` +
+            `> Se revisaron **${projects.length}** proyecto(s) activo(s). Sin capítulos nuevos.`
+          );
+        }
+      } catch (err) {
+        logger.error('Monitor', `Error enviando resumen: ${err.message}`);
+      }
+    }
+  }
 }
 
 // ── Control del scheduler ─────────────────────────────────────────────────────
@@ -120,7 +138,7 @@ function stop() {
 /** Fuerza una verificación inmediata (útil desde un comando de admin) */
 async function forceCheck(client) {
   _client = client || _client;
-  await checkAllProjects();
+  await checkAllProjects(true); // ← true = mandar resumen
 }
 
 function sleep(ms) {
