@@ -11,9 +11,9 @@ const {
 
 const { Projects, LastChapters } = require('../utils/storage');
 const LUMI = require('../utils/lumi');
-const { COLORS }    = require('../../config/config');
-const colorcito     = require('../services/colorcito');
-const driveService  = require('../services/driveService');
+const { COLORS } = require('../../config/config');
+const colorcito = require('../services/colorcito');
+const driveService = require('../services/driveService');
 
 // ── Definición del comando ────────────────────────────────────────────────────
 
@@ -28,10 +28,10 @@ const data = new SlashCommandBuilder()
       .addStringOption(o =>
         o.setName('categoria').setDescription('Categoría del proyecto').setRequired(true)
           .addChoices(
-            { name: 'Manhwas (Coreano)',      value: 'manhwas' },
-            { name: 'Mangas (Japones)',       value: 'mangas'  },
-            { name: 'Novelas ligeras',        value: 'novelas' },
-            { name: 'Joints (Colaboracion)', value: 'joints'  },
+            { name: 'Manhwas (Coreano)', value: 'manhwas' },
+            { name: 'Mangas (Japones)', value: 'mangas' },
+            { name: 'Novelas ligeras', value: 'novelas' },
+            { name: 'Joints (Colaboracion)', value: 'joints' },
           )
       )
       .addStringOption(o => o.setName('colorcito_url').setDescription('URL del proyecto en Colorcito (opcional)'))
@@ -65,10 +65,10 @@ const data = new SlashCommandBuilder()
       .addStringOption(o =>
         o.setName('estado').setDescription('Estado del proyecto').setRequired(true)
           .addChoices(
-            { name: '📖 En curso',    value: 'ongoing'   },
-            { name: '✅ Completado',  value: 'completed' },
-            { name: '⏸️ Hiatus',     value: 'hiatus'    },
-            { name: '❌ Dropeado',   value: 'dropped'   },
+            { name: '📖 En curso', value: 'ongoing' },
+            { name: '✅ Completado', value: 'completed' },
+            { name: '⏸️ Hiatus', value: 'hiatus' },
+            { name: '❌ Dropeado', value: 'dropped' },
           )
       )
   );
@@ -97,12 +97,12 @@ async function execute(interaction) {
     });
   }
 
-  if (sub === 'add')        return handleAdd(interaction);
-  if (sub === 'remove')     return handleRemove(interaction);
-  if (sub === 'list')       return handleList(interaction);
-  if (sub === 'info')       return handleInfo(interaction);
-  if (sub === 'toggle')     return handleToggle(interaction);
-  if (sub === 'setstatus')  return handleSetStatus(interaction);
+  if (sub === 'add') return handleAdd(interaction);
+  if (sub === 'remove') return handleRemove(interaction);
+  if (sub === 'list') return handleList(interaction);
+  if (sub === 'info') return handleInfo(interaction);
+  if (sub === 'toggle') return handleToggle(interaction);
+  if (sub === 'setstatus') return handleSetStatus(interaction);
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -110,12 +110,12 @@ async function execute(interaction) {
 async function handleAdd(interaction) {
   await interaction.deferReply({ ephemeral: true });
 
-  const name            = interaction.options.getString('nombre');
-  const driveFolder     = interaction.options.getString('drive_folder');
-  const categoria       = interaction.options.getString('categoria');
-  const colIndex        = interaction.options.getString('colorcito_url');
+  const name = interaction.options.getString('nombre');
+  const driveFolder = interaction.options.getString('drive_folder');
+  const categoria = interaction.options.getString('categoria');
+  const colIndex = interaction.options.getString('colorcito_url');
   const creditosDefault = interaction.options.getString('creditos_default') || null;
-  const portadaId       = interaction.options.getString('portada_id') || null;
+  const portadaId = interaction.options.getString('portada_id') || null;
 
   // Resolver portada desde ID de mensaje de Discord
   let portadaUrl = null;
@@ -130,7 +130,7 @@ async function handleAdd(interaction) {
       }
     } catch { /* no crítico */ }
   }
-  const tagsRaw         = interaction.options.getString('tags') || '';
+  const tagsRaw = interaction.options.getString('tags') || '';
 
   if (!colIndex) {
     return interaction.editReply(LUMI.proyecto.sinUrl);
@@ -157,21 +157,21 @@ async function handleAdd(interaction) {
     driveFolder,
     announcementChannel: null,
     readerRoleId: null,
-    roleId:       null,
-    reactions:    null,
+    roleId: null,
+    reactions: null,
     defaultCredits: creditosDefault,
-    active:    true,
-    addedAt:   new Date().toISOString(),
-    tags:      tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [],
-    status:    'ongoing',
+    active: true,
+    addedAt: new Date().toISOString(),
+    tags: tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [],
+    status: 'ongoing',
     thumbnail: portadaUrl || null,
-    color:     null,
+    color: null,
   };
 
   // Intentar obtener thumbnail Y guardar capítulo actual como "ya visto"
   // para que el bot no anuncie capítulos que ya existían al añadir el proyecto
   const scrapers = [];
-  if (colIndex)  scrapers.push({ source: 'colorcito', scraper: colorcito, url: colIndex });
+  if (colIndex) scrapers.push({ source: 'colorcito', scraper: colorcito, url: colIndex });
 
   for (const { source, scraper, url } of scrapers) {
     try {
@@ -196,12 +196,13 @@ async function handleAdd(interaction) {
     .setTitle('✅ Proyecto añadido')
     .setDescription(`**${name}** ha sido añadido al bot.`)
     .addFields(
-      { name: 'ID',     value: `\`${id}\``,     inline: true },
-      { name: 'Drive',  value: driveFolder,      inline: true },
-      { name: 'Estado', value: '📖 En curso',    inline: true },
-      { name: 'Fuentes',
+      { name: 'ID', value: `\`${id}\``, inline: true },
+      { name: 'Drive', value: driveFolder, inline: true },
+      { name: 'Estado', value: '📖 En curso', inline: true },
+      {
+        name: 'Fuentes',
         value: [
-          colIndex ? `• Colorcito: ${colIndex}`    : null,
+          colIndex ? `• Colorcito: ${colIndex}` : null,
         ].filter(Boolean).join('\n'),
       },
       { name: 'Categoría', value: categoria || '—', inline: true },
@@ -275,7 +276,7 @@ async function handleList(interaction) {
 async function handleInfo(interaction) {
   await interaction.deferReply({ ephemeral: false });
 
-  const id      = interaction.options.getString('id');
+  const id = interaction.options.getString('id');
   const project = Projects.get(id);
 
   if (!project) {
@@ -283,7 +284,7 @@ async function handleInfo(interaction) {
   }
 
   // Obtener estado de Drive
-  const driveStatus = await driveService.getProjectStatus(project.driveFolder);
+  const driveStatus = await driveService.getProjectStatus(project.driveFolder, project.category);
   const driveLine = driveStatus.found
     ? driveService.buildStatusLine(driveStatus.subfolders)
     : `❓ Carpeta no encontrada: \`${project.driveFolder}\``;
@@ -294,12 +295,13 @@ async function handleInfo(interaction) {
     .setColor(project.color || COLORS.info)
     .setTitle(`📌 ${project.name}`)
     .addFields(
-      { name: 'ID',      value: `\`${project.id}\``,                  inline: true },
-      { name: 'Estado',  value: statusIcon[project.status] || '❓',   inline: true },
-      { name: 'Activo',  value: project.active ? '✅ Sí' : '❌ No',   inline: true },
-      { name: 'Fuentes',
+      { name: 'ID', value: `\`${project.id}\``, inline: true },
+      { name: 'Estado', value: statusIcon[project.status] || '❓', inline: true },
+      { name: 'Activo', value: project.active ? '✅ Sí' : '❌ No', inline: true },
+      {
+        name: 'Fuentes',
         value: [
-          project.sources.colorcito ? `🎨 [Colorcito](${project.sources.colorcito})`: null,
+          project.sources.colorcito ? `🎨 [Colorcito](${project.sources.colorcito})` : null,
         ].filter(Boolean).join('\n') || 'Ninguna',
         inline: false,
       },
@@ -316,7 +318,7 @@ async function handleInfo(interaction) {
 }
 
 async function handleToggle(interaction) {
-  const id      = interaction.options.getString('id');
+  const id = interaction.options.getString('id');
   const project = Projects.get(id);
 
   if (!project) {
@@ -333,8 +335,8 @@ async function handleToggle(interaction) {
 }
 
 async function handleSetStatus(interaction) {
-  const id      = interaction.options.getString('id');
-  const estado  = interaction.options.getString('estado');
+  const id = interaction.options.getString('id');
+  const estado = interaction.options.getString('estado');
   const project = Projects.get(id);
 
   if (!project) {
