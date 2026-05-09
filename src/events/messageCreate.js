@@ -53,7 +53,7 @@ module.exports = {
             role:    m.author.id === message.client.user.id ? 'assistant' : 'user',
             content: m.author.id === message.client.user.id
               ? m.content
-              : `[${m.author.username}]: ${m.content}`,
+              : `[${m.author.username}|${m.author.id}]: ${m.content}`,
           }));
 
         // Texto del mensaje sin los mentions
@@ -62,7 +62,7 @@ module.exports = {
         const messages = [
           { role: 'system', content: SYSTEM_PROMPT },
           ...history,
-          { role: 'user', content: `[${message.author.username}]: ${userText}` },
+          { role: 'user', content: `[${message.author.username}|${message.author.id}]: ${userText}` },
         ];
 
         const reply = await callAgent(
