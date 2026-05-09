@@ -1,0 +1,236 @@
+// src/services/lumiTools.js
+// Herramientas disponibles para el agente de Lumi (formato OpenAI/Groq tool-use)
+
+const drive     = require('./driveService');
+const colorcito = require('./colorcito');
+const announcer = require('./announcer');
+const { Projects } = require('../utils/storage');
+const logger    = require('../utils/logger');
+
+// ── Definiciones de tools (schema para Groq) ──────────────────────────────────
+
+const DEFINITIONS = [
+  {
+    type: 'function',
+    function: {
+      name: 'listar_proyectos',
+      description: 'Lista todos los proyectos registrados en el bot con su nombre, categoría y estado (activo/inactivo).',
+      parameters: {
+        type: 'object',
+        properties: {
+          solo_activos: {
+            type: 'boolean',
+            description: 'true para ver solo proyectos activos. Por defecto muestra todos.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ver_estado_proyecto',
+      description: 'Obtiene el estado detallado de un proyecto desde Google Drive: capítulos, etapas (Raw/Clean/Tradu/Final) y resumen.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nombre_proyecto: {
+            type: 'string',
+            description: 'Nombre del proyecto tal como aparece en Drive.',
+          },
+          categoria: {
+            type: 'string',
+            description: 'Categoría del proyecto (manhwas, mangas, novelas, joints). Opcional.',
+            enum: ['manhwas', 'mangas', 'novelas', 'joints'],
+          },
+        },
+        required: ['nombre_proyecto'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'buscar_colorcito',
+      description: 'Busca un manga/manhwa en Colorcito.com o revisa el último capítulo disponible dado el URL del proyecto.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Texto de búsqueda (nombre del manga o manhwa).',
+          },
+          url_proyecto: {
+            type: 'string',
+            description: 'URL del proyecto en Colorcito para obtener el capítulo más reciente. Si se proporciona, ignora el query.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ver_storage_drive',
+      description: 'Muestra el uso actual de almacenamiento en Google Drive.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'crear_carpetas_drive',
+      description: 'Crea las subcarpetas estándar (Raw, Clean, Tradu, Final) dentro de una carpeta de capítulo en Drive.',
+      parameters: {
+        type: 'object',
+        properties: {
+          carpeta_capitulo_id: {
+            type: 'string',
+            description: 'ID de la carpeta del capítulo en Google Drive.',
+          },
+        },
+        required: ['carpeta_capitulo_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'anunciar_capitulo',
+      description: 'Envía un anuncio de nuevo capítulo al canal de lectores. Requiere el ID o nombre del proyecto y el número de capítulo.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id_proyecto: {
+            type: 'string',
+            description: 'ID del proyecto tal como está registrado en el bot.',
+          },
+          numero_capitulo: {
+            type: 'string',
+            description: 'Número del capítulo a anunciar (ej: "42" o "42.5").',
+          },
+          titulo_capitulo: {
+            type: 'string',
+            description: 'Título opcional del capítulo.',
+          },
+          url_colorcito: {
+            type: 'string',
+            description: 'URL del capítulo en Colorcito (opcional).',
+          },
+        },
+        required: ['id_proyecto', 'numero_capitulo'],
+      },
+    },
+  },
+];
+
+// ── Executors ─────────────────────────────────────────────────────────────────
+// context.client → instancia del Discord Client (necesario para anunciar)
+
+function getExecutors(context = {}) {
+  return {
+
+    listar_proyectos: async ({ solo_activos = false } = {}) => {
+      const all = Projects.list();
+      const list = solo_activos ? all.filter(p => p.active !== false) : all;
+      if (!list.length) return { mensaje: 'No hay proyectos registrados.' };
+      return {
+        total: list.length,
+        proyectos: list.map(p => ({
+          id:        p.id,
+          nombre:    p.name,
+          categoria: p.category || 'sin categoría',
+          activo:    p.active !== false,
+          fuente:    p.sources?.colorcito ? 'Colorcito' : 'manual',
+        })),
+      };
+    },
+
+    ver_estado_proyecto: async ({ nombre_proyecto, categoria }) => {
+      try {
+        const status = await drive.getProjectStatus(nombre_proyecto, categoria || null);
+        if (!status?.found) return { error: status?.error || `"${nombre_proyecto}" no encontrado en Drive.` };
+
+        // Limitar capítulos a los últimos 10 para no saturar el contexto
+        const capsRecientes = (status.chapters || []).slice(-10);
+        return {
+          nombre:      status.projectName,
+          total_caps:  status.totalCaps,
+          resumen:     status.summary,
+          ultimo_cap:  status.lastCap,
+          caps_recientes: capsRecientes,
+          drive_url:   status.folderUrl,
+        };
+      } catch (err) {
+        logger.error('LumiTools', `ver_estado_proyecto: ${err.message}`);
+        return { error: err.message };
+      }
+    },
+
+    buscar_colorcito: async ({ query, url_proyecto } = {}) => {
+      try {
+        if (url_proyecto) {
+          const cap = await colorcito.getLatestChapter(url_proyecto);
+          if (!cap) return { error: 'No se pudo obtener el capítulo desde esa URL.' };
+          return { ultimo_capitulo: cap };
+        }
+        if (query) {
+          const resultados = await colorcito.searchManga(query);
+          if (!resultados?.length) return { mensaje: 'Sin resultados en Colorcito.' };
+          return { resultados: resultados.slice(0, 10) };
+        }
+        return { error: 'Proporciona query o url_proyecto.' };
+      } catch (err) {
+        logger.error('LumiTools', `buscar_colorcito: ${err.message}`);
+        return { error: err.message };
+      }
+    },
+
+    ver_storage_drive: async () => {
+      try {
+        return await drive.getStorageUsage();
+      } catch (err) {
+        logger.error('LumiTools', `ver_storage_drive: ${err.message}`);
+        return { error: err.message };
+      }
+    },
+
+    crear_carpetas_drive: async ({ carpeta_capitulo_id }) => {
+      try {
+        const result = await drive.ensureChapterFolders(carpeta_capitulo_id);
+        return { mensaje: 'Carpetas creadas correctamente.', detalle: result };
+      } catch (err) {
+        logger.error('LumiTools', `crear_carpetas_drive: ${err.message}`);
+        return { error: err.message };
+      }
+    },
+
+    anunciar_capitulo: async ({ id_proyecto, numero_capitulo, titulo_capitulo, url_colorcito }) => {
+      const { client } = context;
+      if (!client?.isReady()) return { error: 'El cliente de Discord no está disponible.' };
+
+      const project = Projects.get(id_proyecto);
+      if (!project) return { error: `No existe el proyecto con ID "${id_proyecto}".` };
+
+      const chapData = {
+        chapterNum:   numero_capitulo,
+        chapterTitle: titulo_capitulo || null,
+        chapterUrl:   url_colorcito || null,
+        urlColorcito: url_colorcito || null,
+      };
+
+      try {
+        await announcer.sendManualAnnouncement(client, project, chapData);
+        return { mensaje: `Anuncio del cap. ${numero_capitulo} de "${project.name}" enviado correctamente.` };
+      } catch (err) {
+        logger.error('LumiTools', `anunciar_capitulo: ${err.message}`);
+        return { error: err.message };
+      }
+    },
+
+  };
+}
+
+module.exports = { DEFINITIONS, getExecutors };
