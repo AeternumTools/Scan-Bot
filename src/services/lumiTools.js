@@ -141,17 +141,17 @@ const DEFINITIONS = [
     type: 'function',
     function: {
       name: 'editar_variable',
-      description: 'Edita una variable de entorno operativa del bot en Railway (canales, roles, intervalos, etc.). NO puede tocar tokens, API keys ni credenciales. Cambiar una variable reinicia el bot en ~30-60 segundos.',
+      description: 'Edita una variable de configuración del bot en Railway. Acepta el nombre de la variable en lenguaje natural (ej: "canal de anuncios", "intervalo", "rol de mod") o el nombre técnico exacto. NO puede tocar tokens, API keys ni credenciales. Cambiar una variable reinicia el bot en ~30-60 segundos.',
       parameters: {
         type: 'object',
         properties: {
           nombre: {
             type: 'string',
-            description: `Nombre exacto de la variable. Editables: ${[...railway.EDITABLE_VARS].join(', ')}.`,
+            description: 'Nombre de la variable en lenguaje natural o nombre técnico. Ejemplos: "canal de anuncios", "ANNOUNCEMENT_CHANNEL_ID", "intervalo", "zona horaria", "canal de raws".',
           },
           valor: {
             type: 'string',
-            description: 'Nuevo valor para la variable.',
+            description: 'Nuevo valor para la variable (ID de canal, ID de rol, número de minutos, etc.).',
           },
         },
         required: ['nombre', 'valor'],
