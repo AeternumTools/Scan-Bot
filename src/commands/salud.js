@@ -60,16 +60,21 @@ async function execute(interaction) {
     try {
       const result = await Promise.race([
         colorcito.getLatestChapter(proyectoConColor.sources.colorcito),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20000)),
       ]);
       if (result) {
         checks.push(`✅ Scraper de Colorcito respondiendo correctamente ${K.social()}`);
       } else {
-        checks.push(`⚠️ Scraper de Colorcito respondió pero sin datos ${K.hartazgo()}`);
+        checks.push(`⚠️ Colorcito no devolvió datos — el sitio puede haber cambiado su estructura ${K.hartazgo()}`);
         todosBien = false;
       }
-    } catch {
-      checks.push(`❌ Sin conexión con Colorcito ${K.triste()}`);
+    } catch (err) {
+      const esEstructura = err.message === 'timeout' || err.message?.includes('404') || err.message?.includes('ECONNREFUSED');
+      if (esEstructura) {
+        checks.push(`⚠️ Colorcito no responde al scraper — el sitio migró a Next.js y requiere actualización ${K.hartazgo()}`);
+      } else {
+        checks.push(`❌ Sin conexión con Colorcito \`${err.message}\` ${K.triste()}`);
+      }
       todosBien = false;
     }
   } else {
