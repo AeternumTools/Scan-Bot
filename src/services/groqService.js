@@ -10,11 +10,9 @@ const MAX_TOOL_ROUNDS = 6;
 // Modelos disponibles:
 // - 70b: mejor razonamiento y tool-use (1 000 req/día free)
 // - 8b/gemma2: cuota alta (14 400/día) pero NO confiables para tool-use
-const MODEL_TOOL  = 'llama-3.3-70b-versatile';  // único para cuando hay tools
-const MODEL_CHAIN = [                             // cadena para conversación sin tools
-  'llama-3.3-70b-versatile',
-  'llama-3.1-8b-instant',
-  'gemma2-9b-it',
+const MODEL_CHAIN = [
+  'llama-3.3-70b-versatile',  // mejor razonamiento y tool-use (100k TPD free)
+  'llama-3.1-8b-instant',     // fallback rápido, mayor cuota (500k TPD free)
 ];
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
