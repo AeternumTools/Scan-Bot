@@ -29,42 +29,46 @@ async function callModel(model, body, headers) {
   }
 }
 
-// Con tools: solo usa el 70b, reintenta hasta 3 veces en 429 con backoff.
-async function callWithTools(body, headers) {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      return await callModel(MODEL_TOOL, body, headers);
-    } catch (err) {
-      if (err.status === 429 && attempt < 2) {
-        const wait = (attempt + 1) * 5000;
-        logger.warn('Groq', `429 en ${MODEL_TOOL} — reintentando en ${wait / 1000}s`);
-        await sleep(wait);
-        continue;
-      }
-      throw err;
-    }
-  }
+// Detecta si el 429 es por tokens por día (TPD) — en ese caso no tiene sentido esperar,
+// hay que saltar al siguiente modelo directamente.
+function isTokensPerDay(err) {
+  return err.status === 429 &&
+    (err.detail?.includes('tokens per day') || err.detail?.includes('TPD'));
 }
 
-// Sin tools: fallback entre modelos.
-async function callWithFallback(body, headers) {
-  for (let i = 0; i < MODEL_CHAIN.length; i++) {
-    const model = MODEL_CHAIN[i];
+// Fallback entre modelos para CUALQUIER tipo de llamada.
+// - TPD (tokens/día agotados): salta al siguiente modelo sin esperar.
+// - RPM (requests/min): espera brevemente y reintenta el mismo modelo una vez.
+async function callWithFallback(body, headers, models = MODEL_CHAIN) {
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
     try {
       const res = await callModel(model, body, headers);
-      if (i > 0) logger.info('Groq', `Fallback a: ${model}`);
+      if (i > 0) logger.info('Groq', `Usando modelo de fallback: ${model}`);
       return res;
     } catch (err) {
       if (err.status === 429) {
-        const wait = (i + 1) * 3000;
-        logger.warn('Groq', `429 en ${model} — probando siguiente en ${wait / 1000}s`);
-        await sleep(wait);
-        continue;
+        if (isTokensPerDay(err)) {
+          // Cuota diaria agotada — pasar al siguiente sin esperar
+          logger.warn('Groq', `TPD agotado en ${model} → probando siguiente`);
+          continue;
+        }
+        // Rate limit por minuto — esperar un poco y reintentar una vez
+        if (i < models.length - 1) {
+          logger.warn('Groq', `429 RPM en ${model} → esperando 4s y probando siguiente`);
+          await sleep(4000);
+          continue;
+        }
       }
       throw err;
     }
   }
-  throw new Error('Todos los modelos están en límite de uso. Intenta en unos minutos.');
+  throw new Error('Todos los modelos alcanzaron su límite. Intenta en unos minutos.');
+}
+
+// Para tool use: misma lógica pero el 70b va primero por su mejor soporte.
+async function callWithTools(body, headers) {
+  return callWithFallback(body, headers, MODEL_CHAIN);
 }
 
 // Detecta tool calls escritas como texto por el modelo.
