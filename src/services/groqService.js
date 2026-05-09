@@ -67,6 +67,25 @@ async function callWithFallback(body, headers) {
   throw new Error('Todos los modelos están en límite de uso. Intenta en unos minutos.');
 }
 
+// Detecta tool calls escritas como texto: <function=nombre>{args}</function>
+// y las convierte al formato estructurado que espera el loop.
+function parseLeakedToolCalls(content) {
+  const calls = [];
+  const regex = /<function=([a-zA-Z_]+)>([\s\S]*?)<\/function>/g;
+  let match;
+  while ((match = regex.exec(content)) !== null) {
+    const name = match[1];
+    let args = {};
+    try { args = JSON.parse(match[2]); } catch { /* args vacíos */ }
+    calls.push({
+      id:       `leaked_${Date.now()}_${calls.length}`,
+      type:     'function',
+      function: { name, arguments: JSON.stringify(args) },
+    });
+  }
+  return calls;
+}
+
 /**
  * Llama al agente de Groq con soporte de tool-use.
  * @param {Array}  messages   - Historial de mensajes [{ role, content }]
@@ -103,9 +122,24 @@ async function callAgent(messages, tools = [], executors = {}) {
 
     const choice = data.choices[0];
     const msg    = choice.message;
+
+    // Algunos modelos emiten el tool call como texto plano en content
+    // en vez de usar el campo tool_calls estructurado.
+    // Detectamos y convertimos ese patrón antes de continuar.
+    if (msg.content && !msg.tool_calls?.length) {
+      const leaked = parseLeakedToolCalls(msg.content);
+      if (leaked.length) {
+        logger.warn('Groq', `Tool call detectada en content (${leaked.length}), convirtiendo...`);
+        msg.tool_calls    = leaked;
+        msg.finish_reason = 'tool_calls';
+        // Limpiar el content para que no quede el texto crudo
+        msg.content = null;
+      }
+    }
+
     msgs.push(msg);
 
-    if (choice.finish_reason === 'tool_calls' && msg.tool_calls?.length) {
+    if ((choice.finish_reason === 'tool_calls' || msg.tool_calls?.length) && msg.tool_calls?.length) {
       for (const tc of msg.tool_calls) {
         const fn = executors[tc.function.name];
         let result;
@@ -123,9 +157,9 @@ async function callAgent(messages, tools = [], executors = {}) {
         }
 
         msgs.push({
-          role:        'tool',
+          role:         'tool',
           tool_call_id: tc.id,
-          content:     JSON.stringify(result),
+          content:      JSON.stringify(result),
         });
       }
     } else {
