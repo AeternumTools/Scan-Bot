@@ -7,21 +7,18 @@ const logger = require('../utils/logger');
 const GROQ_URL       = 'https://api.groq.com/openai/v1/chat/completions';
 const MAX_TOOL_ROUNDS = 6;
 
-// Cadena de fallback: si el modelo principal devuelve 429, se intenta el siguiente.
-// llama-3.3-70b → mejor para tool use y razonamiento (1 000 req/día free)
-// llama-3.1-8b-instant → rápido, capaz de tool use, mucho mayor cuota (14 400 req/día free)
-// gemma2-9b-it → último recurso (14 400 req/día free)
-const MODEL_CHAIN = [
+// Modelos disponibles:
+// - 70b: mejor razonamiento y tool-use (1 000 req/día free)
+// - 8b/gemma2: cuota alta (14 400/día) pero NO confiables para tool-use
+const MODEL_TOOL  = 'llama-3.3-70b-versatile';  // único para cuando hay tools
+const MODEL_CHAIN = [                             // cadena para conversación sin tools
   'llama-3.3-70b-versatile',
   'llama-3.1-8b-instant',
   'gemma2-9b-it',
 ];
 
-// Espera ms milisegundos (para el backoff en 429)
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// Llama a un modelo concreto para una ronda del loop.
-// Devuelve { data } o lanza error con .status si es HTTP.
 async function callModel(model, body, headers) {
   try {
     return await axios.post(GROQ_URL, { ...body, model }, { headers, timeout: 30_000 });
@@ -32,23 +29,38 @@ async function callModel(model, body, headers) {
   }
 }
 
-// Intenta la llamada en todos los modelos de la cadena.
-// En 429 espera brevemente y prueba el siguiente.
+// Con tools: solo usa el 70b, reintenta hasta 3 veces en 429 con backoff.
+async function callWithTools(body, headers) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await callModel(MODEL_TOOL, body, headers);
+    } catch (err) {
+      if (err.status === 429 && attempt < 2) {
+        const wait = (attempt + 1) * 5000;
+        logger.warn('Groq', `429 en ${MODEL_TOOL} — reintentando en ${wait / 1000}s`);
+        await sleep(wait);
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+// Sin tools: fallback entre modelos.
 async function callWithFallback(body, headers) {
   for (let i = 0; i < MODEL_CHAIN.length; i++) {
     const model = MODEL_CHAIN[i];
     try {
       const res = await callModel(model, body, headers);
-      if (i > 0) logger.info('Groq', `Usando modelo de fallback: ${model}`);
+      if (i > 0) logger.info('Groq', `Fallback a: ${model}`);
       return res;
     } catch (err) {
       if (err.status === 429) {
-        const wait = (i + 1) * 3000; // 3s, 6s, 9s…
-        logger.warn('Groq', `429 en ${model} — esperando ${wait / 1000}s y probando siguiente`);
+        const wait = (i + 1) * 3000;
+        logger.warn('Groq', `429 en ${model} — probando siguiente en ${wait / 1000}s`);
         await sleep(wait);
         continue;
       }
-      // Cualquier otro error se lanza directo
       throw err;
     }
   }
@@ -82,7 +94,8 @@ async function callAgent(messages, tools = [], executors = {}) {
 
     let data;
     try {
-      ({ data } = await callWithFallback(body, headers));
+      const fn = tools.length ? callWithTools : callWithFallback;
+      ({ data } = await fn(body, headers));
     } catch (err) {
       logger.error('Groq', `Error en ronda ${round + 1}: ${err.detail || err.message}`);
       throw new Error(err.detail || err.message);
