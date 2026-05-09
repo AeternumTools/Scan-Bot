@@ -4,6 +4,7 @@
 const drive     = require('./driveService');
 const colorcito = require('./colorcito');
 const announcer = require('./announcer');
+const railway   = require('./railwayService');
 const { Projects } = require('../utils/storage');
 const logger    = require('../utils/logger');
 
@@ -125,6 +126,35 @@ const DEFINITIONS = [
           },
         },
         required: ['id_proyecto', 'numero_capitulo'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ver_variables',
+      description: 'Muestra las variables de entorno del bot en Railway. Las credenciales sensibles aparecen enmascaradas. Indica cuáles pueden editarse.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'editar_variable',
+      description: 'Edita una variable de entorno operativa del bot en Railway (canales, roles, intervalos, etc.). NO puede tocar tokens, API keys ni credenciales. Cambiar una variable reinicia el bot en ~30-60 segundos.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nombre: {
+            type: 'string',
+            description: `Nombre exacto de la variable. Editables: ${[...railway.EDITABLE_VARS].join(', ')}.`,
+          },
+          valor: {
+            type: 'string',
+            description: 'Nuevo valor para la variable.',
+          },
+        },
+        required: ['nombre', 'valor'],
       },
     },
   },
@@ -251,6 +281,41 @@ function getExecutors(context = {}) {
         return { mensaje: `Anuncio del cap. ${numero_capitulo} de "${project.name}" enviado correctamente.` };
       } catch (err) {
         logger.error('LumiTools', `anunciar_capitulo: ${err.message}`);
+        return { error: err.message };
+      }
+    },
+
+    ver_variables: async () => {
+      try {
+        const vars = await railway.getVariables();
+        const editables = [];
+        const readOnly  = [];
+
+        for (const [key, info] of Object.entries(vars)) {
+          if (info.editable) editables.push(`${key} = ${info.value}`);
+          else readOnly.push(key);
+        }
+
+        return {
+          editables,
+          protegidas: readOnly,
+          nota: 'Solo las variables en "editables" pueden cambiarse con editar_variable.',
+        };
+      } catch (err) {
+        logger.error('LumiTools', `ver_variables: ${err.message}`);
+        return { error: err.message };
+      }
+    },
+
+    editar_variable: async ({ nombre, valor }) => {
+      try {
+        await railway.setVariable(nombre, valor);
+        return {
+          ok: true,
+          mensaje: `${nombre} actualizada a "${valor}". El bot se reiniciará en ~30-60 segundos con el nuevo valor.`,
+        };
+      } catch (err) {
+        logger.error('LumiTools', `editar_variable: ${err.message}`);
         return { error: err.message };
       }
     },
