@@ -90,6 +90,10 @@ const MASKED_VARS = new Set([
   'WEBHOOK_SECRET',
 ]);
 
+// ── Caché en memoria para no abusar de la API de Railway ─────────────────────
+const cache = { vars: null, at: 0 };
+const CACHE_TTL = 2 * 60 * 1000; // 2 minutos
+
 function getHeaders() {
   const token = process.env.RAILWAY_API_TOKEN;
   if (!token) throw new Error('RAILWAY_API_TOKEN no está configurado');
@@ -111,6 +115,11 @@ async function query(gql, variables = {}) {
 
 // ── Leer todas las variables ──────────────────────────────────────────────────
 async function getVariables() {
+  // Servir desde caché si es reciente
+  if (cache.vars && Date.now() - cache.at < CACHE_TTL) {
+    return cache.vars;
+  }
+
   const data = await query(`
     query {
       variables(
@@ -132,7 +141,10 @@ async function getVariables() {
     });
   }
 
-  return { configuracion: editables };
+  const result = { configuracion: editables };
+  cache.vars = result;
+  cache.at   = Date.now();
+  return result;
 }
 
 // ── Editar una variable ───────────────────────────────────────────────────────
@@ -163,6 +175,7 @@ async function setVariable(nameOrAlias, value) {
 
   const label = VAR_CONFIG[resolved].label;
   logger.info('Railway', `Variable actualizada: ${resolved} = ${value}`);
+  cache.vars = null; // invalidar caché
   return { variable: resolved, label, valor: value };
 }
 
