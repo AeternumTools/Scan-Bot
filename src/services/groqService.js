@@ -67,21 +67,19 @@ async function callWithFallback(body, headers) {
   throw new Error('Todos los modelos están en límite de uso. Intenta en unos minutos.');
 }
 
-// Detecta tool calls escritas como texto: <function=nombre>{args}</function>
-// y las convierte al formato estructurado que espera el loop.
+// Detecta tool calls escritas como texto por el modelo.
+// Soporta: <function=name>{}</function>  y  <function=name>{}  (sin cierre)
 function parseLeakedToolCalls(content) {
   const calls = [];
-  const regex = /<function=([a-zA-Z_]+)>([\s\S]*?)<\/function>/g;
+  // Captura: <function=NOMBRE> seguido de JSON hasta </function> o fin de string
+  const regex = /<function=([a-zA-Z_]+)>([\s\S]*?)(?:<\/function>|$)/g;
   let match;
   while ((match = regex.exec(content)) !== null) {
-    const name = match[1];
+    const name    = match[1];
+    const rawArgs = match[2].trim();
     let args = {};
-    try { args = JSON.parse(match[2]); } catch { /* args vacíos */ }
-    calls.push({
-      id:       `leaked_${Date.now()}_${calls.length}`,
-      type:     'function',
-      function: { name, arguments: JSON.stringify(args) },
-    });
+    try { args = JSON.parse(rawArgs || '{}'); } catch { /* args vacíos */ }
+    calls.push({ name, args });
   }
   return calls;
 }
@@ -123,23 +121,42 @@ async function callAgent(messages, tools = [], executors = {}) {
     const choice = data.choices[0];
     const msg    = choice.message;
 
-    // Algunos modelos emiten el tool call como texto plano en content
-    // en vez de usar el campo tool_calls estructurado.
-    // Detectamos y convertimos ese patrón antes de continuar.
+    // Algunos modelos escriben las tool calls como texto plano en content
+    // en vez del campo tool_calls estructurado. Las detectamos, ejecutamos,
+    // e inyectamos el resultado como mensaje de usuario para que el modelo responda.
     if (msg.content && !msg.tool_calls?.length) {
       const leaked = parseLeakedToolCalls(msg.content);
       if (leaked.length) {
-        logger.warn('Groq', `Tool call detectada en content (${leaked.length}), convirtiendo...`);
-        msg.tool_calls    = leaked;
-        msg.finish_reason = 'tool_calls';
-        // Limpiar el content para que no quede el texto crudo
-        msg.content = null;
+        logger.warn('Groq', `Tool calls en content (${leaked.length}), ejecutando...`);
+        const results = [];
+        for (const { name, args } of leaked) {
+          const fn = executors[name];
+          let result;
+          if (fn) {
+            try {
+              result = await fn(args);
+              logger.info('Groq', `Tool (leaked): ${name}`);
+            } catch (err) {
+              result = { error: err.message };
+            }
+          } else {
+            result = { error: `Herramienta '${name}' no registrada` };
+          }
+          results.push(`[${name}]: ${JSON.stringify(result)}`);
+        }
+        // Inyectar resultados como contexto sin romper el formato del historial
+        msgs.push({ role: 'assistant', content: '' });
+        msgs.push({
+          role:    'user',
+          content: `Resultados de herramientas:\n${results.join('\n')}\n\nResponde al usuario con esta información.`,
+        });
+        continue;
       }
     }
 
     msgs.push(msg);
 
-    if ((choice.finish_reason === 'tool_calls' || msg.tool_calls?.length) && msg.tool_calls?.length) {
+    if (choice.finish_reason === 'tool_calls' && msg.tool_calls?.length) {
       for (const tc of msg.tool_calls) {
         const fn = executors[tc.function.name];
         let result;

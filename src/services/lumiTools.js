@@ -287,20 +287,7 @@ function getExecutors(context = {}) {
 
     ver_variables: async () => {
       try {
-        const vars = await railway.getVariables();
-        const editables = [];
-        const readOnly  = [];
-
-        for (const [key, info] of Object.entries(vars)) {
-          if (info.editable) editables.push(`${key} = ${info.value}`);
-          else readOnly.push(key);
-        }
-
-        return {
-          editables,
-          protegidas: readOnly,
-          nota: 'Solo las variables en "editables" pueden cambiarse con editar_variable.',
-        };
+        return railway.getVariables();
       } catch (err) {
         logger.error('LumiTools', `ver_variables: ${err.message}`);
         return { error: err.message };
@@ -309,10 +296,10 @@ function getExecutors(context = {}) {
 
     editar_variable: async ({ nombre, valor }) => {
       try {
-        await railway.setVariable(nombre, valor);
+        const result = railway.setVariable(nombre, valor);
         return {
           ok: true,
-          mensaje: `${nombre} actualizada a "${valor}". El bot se reiniciará en ~30-60 segundos con el nuevo valor.`,
+          mensaje: `"${result.label}" actualizada a "${valor}". El cambio aplica de inmediato.`,
         };
       } catch (err) {
         logger.error('LumiTools', `editar_variable: ${err.message}`);
