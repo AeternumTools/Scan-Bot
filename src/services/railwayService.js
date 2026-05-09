@@ -1,15 +1,13 @@
 // src/services/railwayService.js
-// Gestión de variables de entorno en Railway vía API GraphQL.
-// Lumi puede leer y editar variables operativas sin tocar las credenciales.
+// Gestión de variables de configuración del bot.
+// Las variables se leen de process.env y los overrides se guardan en data/config.json.
+// Los cambios aplican inmediatamente sin reiniciar Railway.
 
-const axios  = require('axios');
+const path   = require('path');
+const fs     = require('fs-extra');
 const logger = require('../utils/logger');
 
-const RAILWAY_API = 'https://backboard.railway.app/graphql/v2';
-
-const PROJECT_ID     = 'af8affe6-7166-4bef-92c3-6c763de90d55';
-const SERVICE_ID     = '9c3be517-6076-4d6c-b2f4-dd00718b3d86';
-const ENVIRONMENT_ID = 'f9e053d0-7016-4f6c-bfc5-7bcbfea60ccd';
+const CONFIG_FILE = path.join('data', 'config.json');
 
 // ── Diccionario: variable → nombre legible + aliases ─────────────────────────
 const VAR_CONFIG = {
@@ -67,7 +65,6 @@ const VAR_CONFIG = {
   },
 };
 
-// Set de variables editables (derivado del diccionario)
 const EDITABLE_VARS = new Set(Object.keys(VAR_CONFIG));
 
 // Mapa inverso: alias → nombre de variable
@@ -79,103 +76,58 @@ for (const [varName, cfg] of Object.entries(VAR_CONFIG)) {
   }
 }
 
-// ── Variables sensibles que se enmascaran al mostrar ─────────────────────────
-const MASKED_VARS = new Set([
-  'DISCORD_TOKEN',
-  'GROQ_API_KEY',
-  'RAILWAY_API_TOKEN',
-  'GOOGLE_SERVICE_ACCOUNT_KEY',
-  'GOOGLE_REFRESH_TOKEN',
-  'GOOGLE_CLIENT_SECRET',
-  'WEBHOOK_SECRET',
-]);
-
-// ── Caché en memoria para no abusar de la API de Railway ─────────────────────
-const cache = { vars: null, at: 0 };
-const CACHE_TTL = 2 * 60 * 1000; // 2 minutos
-
-function getHeaders() {
-  const token = process.env.RAILWAY_API_TOKEN;
-  if (!token) throw new Error('RAILWAY_API_TOKEN no está configurado');
-  return {
-    'Content-Type':  'application/json',
-    'Authorization': `Bearer ${token}`,
-  };
-}
-
-async function query(gql, variables = {}) {
-  const { data } = await axios.post(
-    RAILWAY_API,
-    { query: gql, variables },
-    { headers: getHeaders(), timeout: 15_000 },
-  );
-  if (data.errors?.length) throw new Error(data.errors[0].message);
-  return data.data;
+// ── Leer overrides guardados ──────────────────────────────────────────────────
+function loadOverrides() {
+  try {
+    return fs.existsSync(CONFIG_FILE) ? fs.readJSONSync(CONFIG_FILE) : {};
+  } catch {
+    return {};
+  }
 }
 
 // ── Leer todas las variables ──────────────────────────────────────────────────
-async function getVariables() {
-  // Servir desde caché si es reciente
-  if (cache.vars && Date.now() - cache.at < CACHE_TTL) {
-    return cache.vars;
-  }
-
-  const data = await query(`
-    query {
-      variables(
-        projectId: "${PROJECT_ID}"
-        environmentId: "${ENVIRONMENT_ID}"
-        serviceId: "${SERVICE_ID}"
-      )
-    }
-  `);
-
-  const raw = data.variables || {};
-  const editables = [];
+function getVariables() {
+  const overrides = loadOverrides();
+  const config = [];
 
   for (const [varName, cfg] of Object.entries(VAR_CONFIG)) {
-    editables.push({
+    // Override tiene prioridad, luego process.env
+    const valor = overrides[varName] ?? process.env[varName] ?? '(no configurada)';
+    const fuente = overrides[varName] ? '✏️ editada' : '⚙️ Railway';
+    config.push({
       variable: varName,
       nombre:   cfg.label,
-      valor:    MASKED_VARS.has(varName) ? '••••••••' : (raw[varName] ?? '(no configurada)'),
+      valor,
+      fuente,
     });
   }
 
-  const result = { configuracion: editables };
-  cache.vars = result;
-  cache.at   = Date.now();
-  return result;
+  return { configuracion: config };
 }
 
 // ── Editar una variable ───────────────────────────────────────────────────────
-// Acepta el nombre exacto de la variable O cualquier alias en español/inglés.
-async function setVariable(nameOrAlias, value) {
+function setVariable(nameOrAlias, value) {
   const resolved = ALIAS_MAP.get(nameOrAlias.toLowerCase()) || nameOrAlias;
 
   if (!EDITABLE_VARS.has(resolved)) {
-    const sugerencias = Object.entries(VAR_CONFIG)
-      .map(([k, v]) => `• ${v.label} → ${k}`)
+    const lista = Object.entries(VAR_CONFIG)
+      .map(([k, v]) => `• ${v.label}`)
       .join('\n');
-    throw new Error(
-      `"${nameOrAlias}" no corresponde a ninguna variable editable.\n\nVariables disponibles:\n${sugerencias}`,
-    );
+    throw new Error(`"${nameOrAlias}" no corresponde a ninguna variable editable.\n\nDisponibles:\n${lista}`);
   }
 
-  await query(`
-    mutation {
-      variableUpsert(input: {
-        projectId:     "${PROJECT_ID}"
-        environmentId: "${ENVIRONMENT_ID}"
-        serviceId:     "${SERVICE_ID}"
-        name:          ${JSON.stringify(resolved)}
-        value:         ${JSON.stringify(String(value))}
-      })
-    }
-  `);
+  // Guardar en el archivo de overrides
+  const overrides = loadOverrides();
+  overrides[resolved] = String(value);
+  fs.ensureDirSync(path.dirname(CONFIG_FILE));
+  fs.outputJSONSync(CONFIG_FILE, overrides, { spaces: 2 });
+
+  // Aplicar inmediatamente en el proceso actual
+  process.env[resolved] = String(value);
 
   const label = VAR_CONFIG[resolved].label;
-  logger.info('Railway', `Variable actualizada: ${resolved} = ${value}`);
-  cache.vars = null; // invalidar caché
+  logger.info('Config', `Variable actualizada: ${resolved} = ${value}`);
+
   return { variable: resolved, label, valor: value };
 }
 
