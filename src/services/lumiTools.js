@@ -31,7 +31,7 @@ const DEFINITIONS = [
     type: 'function',
     function: {
       name: 'ver_estado_proyecto',
-      description: 'Obtiene el estado detallado de un proyecto desde Google Drive: capítulos, etapas (Raw/Clean/Tradu/Final) y resumen.',
+      description: 'Consulta el estado de PRODUCCIÓN interno del proyecto en Google Drive: qué capítulos tiene el equipo procesados y en qué etapa están (Raw, Clean, Tradu, Final). Usar cuando pregunten por el avance del equipo, qué capítulos están en proceso, o el estado de trabajo interno. NO usar para saber cuál es el último capítulo publicado en el sitio web.',
       parameters: {
         type: 'object',
         properties: {
@@ -53,17 +53,21 @@ const DEFINITIONS = [
     type: 'function',
     function: {
       name: 'buscar_colorcito',
-      description: 'Busca un manga/manhwa en Colorcito.com o revisa el último capítulo disponible dado el URL del proyecto.',
+      description: 'Consulta Colorcito.com para saber cuál es el ÚLTIMO CAPÍTULO PUBLICADO en el sitio web, disponible para los lectores. Usar cuando pregunten "en qué capítulo va", "cuál es el último cap", "revisar Colorcito", o cualquier pregunta sobre el capítulo publicado/disponible. También busca proyectos por nombre en el sitio. Acepta el nombre del proyecto en vez de la URL.',
       parameters: {
         type: 'object',
         properties: {
-          query: {
+          nombre_proyecto: {
             type: 'string',
-            description: 'Texto de búsqueda (nombre del manga o manhwa).',
+            description: 'Nombre del proyecto registrado en el bot. Se buscará su URL de Colorcito automáticamente.',
           },
           url_proyecto: {
             type: 'string',
-            description: 'URL del proyecto en Colorcito para obtener el capítulo más reciente. Si se proporciona, ignora el query.',
+            description: 'URL directa del proyecto en Colorcito. Usar si se conoce el URL exacto.',
+          },
+          query: {
+            type: 'string',
+            description: 'Texto libre para buscar un manga en Colorcito si no está registrado en el bot.',
           },
         },
         required: [],
@@ -169,19 +173,40 @@ function getExecutors(context = {}) {
       }
     },
 
-    buscar_colorcito: async ({ query, url_proyecto } = {}) => {
+    buscar_colorcito: async ({ nombre_proyecto, url_proyecto, query } = {}) => {
       try {
+        // Prioridad 1: URL directa
         if (url_proyecto) {
           const cap = await colorcito.getLatestChapter(url_proyecto);
           if (!cap) return { error: 'No se pudo obtener el capítulo desde esa URL.' };
           return { ultimo_capitulo: cap };
         }
+
+        // Prioridad 2: nombre del proyecto → buscar en storage → usar su URL de Colorcito
+        if (nombre_proyecto) {
+          const proyecto = Projects.findByName(nombre_proyecto);
+          if (proyecto?.sources?.colorcito) {
+            const cap = await colorcito.getLatestChapter(proyecto.sources.colorcito);
+            if (!cap) return { error: `No se pudo obtener el capítulo de "${proyecto.name}" desde Colorcito.` };
+            return { proyecto: proyecto.name, ultimo_capitulo: cap };
+          }
+          if (proyecto && !proyecto.sources?.colorcito) {
+            return { error: `"${proyecto.name}" no tiene URL de Colorcito configurada.` };
+          }
+          // No encontrado en storage → intentar con el nombre como slug
+          const cap = await colorcito.getLatestChapter(`https://colorcitoscan.com/ver/${nombre_proyecto}`);
+          if (cap) return { ultimo_capitulo: cap };
+          return { error: `No se encontró "${nombre_proyecto}" en los proyectos registrados ni en Colorcito.` };
+        }
+
+        // Prioridad 3: búsqueda libre
         if (query) {
           const resultados = await colorcito.searchManga(query);
           if (!resultados?.length) return { mensaje: 'Sin resultados en Colorcito.' };
           return { resultados: resultados.slice(0, 10) };
         }
-        return { error: 'Proporciona query o url_proyecto.' };
+
+        return { error: 'Proporciona nombre_proyecto, url_proyecto o query.' };
       } catch (err) {
         logger.error('LumiTools', `buscar_colorcito: ${err.message}`);
         return { error: err.message };
