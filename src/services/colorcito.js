@@ -1,176 +1,115 @@
 // src/services/colorcito.js
-// Scraper para Colorcito.com (manhwas en color)
+// Cliente para la API REST de Colorcito (api.colorcitoscan.com)
+// El sitio migró de WordPress a Next.js — se usa la API interna en vez de scraping HTML.
 
-const axios   = require('axios');
-const cheerio = require('cheerio');
-const logger  = require('../utils/logger');
+const axios  = require('axios');
+const logger = require('../utils/logger');
 
-const BASE_URL = process.env.COLORCITO_BASE_URL || 'https://colorcito.com';
+const API_BASE  = 'https://api.colorcitoscan.com';
+const SITE_BASE = process.env.COLORCITO_BASE_URL || 'https://colorcitoscan.com';
 
 const HEADERS = {
-  'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
-    'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-    'Chrome/135.0.0.0 Safari/537.36',
-  'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-  'Accept-Encoding': 'gzip, deflate, br',
-  'Referer': 'https://www.google.com/',
-  'sec-ch-ua': '"Google Chrome";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
-  'sec-ch-ua-mobile': '?0',
-  'sec-ch-ua-platform': '"Windows"',
-  'sec-fetch-dest': 'document',
-  'sec-fetch-mode': 'navigate',
-  'sec-fetch-site': 'cross-site',
-  'upgrade-insecure-requests': '1',
-  'Cache-Control': 'no-cache',
-  'Pragma': 'no-cache',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+  'Accept':     'application/json',
+  'Origin':     SITE_BASE,
+  'Referer':    SITE_BASE + '/',
 };
 
-/**
- * Obtiene el capítulo más reciente de un proyecto en Colorcito.
- * @param {string} projectUrl  URL de la página del manga en Colorcito
- * @returns {{ chapterNum, chapterTitle, chapterUrl, thumbnail, projectName } | null}
- */
-async function getLatestChapter(projectUrl) {
-  if (!projectUrl) return null;
-
+// Extrae el slug del URL del proyecto.
+// Soporta formatos antiguos (/manga/[slug]) y nuevos (/ver/[slug])
+// y también slugs directos (sin barra inicial).
+function extractSlug(url) {
+  if (!url) return null;
+  const m = url.match(/\/(?:manga|ver|serie)\/([^\/\?\s]+)/);
+  if (m) return m[1].replace(/\/$/, '');
+  // Si no tiene prefijo conocido, tomar el último segmento del path
   try {
-    const { data: html } = await axios.get(projectUrl, {
-      headers: HEADERS,
-      timeout: 15000,
-    });
-    const $ = cheerio.load(html);
-
-    // ── Nombre del proyecto ────────────────────────────────────────────────
-    const projectName =
-      $('h1').first().text().trim() ||
-      $('title').text().split('–')[0].trim();
-
-    // ── Portada ────────────────────────────────────────────────────────────
-    const thumbnail =
-      $('img.wp-post-image, img.img-thumbnail, .summary_image img').first().attr('src') ||
-      $('div.thumb img').first().attr('src') ||
-      null;
-
-    // ── Capítulos ──────────────────────────────────────────────────────────
-    // Colorcitoscan usa links con href="/ver/proyecto/capitulo-N"
-    // Selector: todos los <a> que contengan "/capitulo-" en el href
-    const chapterLinks = $('a[href*="/capitulo-"]');
-
-    if (!chapterLinks.length) {
-      // Fallback para otros temas WordPress
-      const fallback = $('ul.version-chap li a, div.chapter-link a, li.wp-manga-chapter a, .chapters-list li a');
-      if (!fallback.length) {
-        logger.warn('Colorcito', `No se encontraron capítulos en: ${projectUrl}`);
-        return null;
-      }
-      const firstFallback = fallback.first();
-      const rawTextFallback = firstFallback.text().trim();
-      const matchFallback = rawTextFallback.match(/[\d]+(?:[.,]\d+)?/);
-      return {
-        projectName,
-        thumbnail,
-        chapterNum: matchFallback ? matchFallback[0].replace(',', '.') : rawTextFallback,
-        chapterTitle: null,
-        chapterUrl: firstFallback.attr('href'),
-        source: 'colorcito',
-      };
-    }
-
-    // Ordenar por número de capítulo descendente y tomar el mayor
-    // El número real puede estar en el texto del link (ej: "Capítulo 37.5")
-    // ya que el href usa /capitulo-375 sin punto decimal
-    let highestNum = -1;
-    let firstLink = null;
-    let firstLinkRealNum = null;
-
-    chapterLinks.each((_, el) => {
-      const href = $(el).attr('href') || '';
-      const hrefMatch = href.match(/capitulo-([\d]+(?:[.,]\d+)?)/i);
-      if (!hrefMatch) return;
-
-      // Intentar leer el número real del texto o title del link
-      const linkText  = $(el).text().trim();
-      const titleAttr = $(el).attr('title') || '';
-      const textMatch = (linkText + ' ' + titleAttr).match(/(?:cap[ií]tulo\.?)?\s*([\d]+(?:[.,][\d]+)?)/i);
-
-      // Usar número del texto si existe, si no usar el del href
-      const rawNum  = textMatch ? textMatch[1].replace(',', '.') : hrefMatch[1].replace(',', '.');
-      const num     = parseFloat(rawNum);
-
-      if (num > highestNum) {
-        highestNum = num;
-        firstLinkRealNum = rawNum;
-        firstLink = $(el);
-      }
-    });
-
-    if (!firstLink) {
-      logger.warn('Colorcito', `No se pudo determinar el capítulo más reciente en: ${projectUrl}`);
-      return null;
-    }
-
-    const chapterUrl = firstLink.attr('href') || null;
-
-    // Usar el número real detectado del texto, con fallback al title attr
-    const titleAttr  = firstLink.attr('title') || '';
-    const titleMatch = titleAttr.match(/Cap\.?\s*([\d]+(?:[.,]\d+)?)/i);
-    const chapterNum = titleMatch
-      ? titleMatch[1].replace(',', '.')
-      : (firstLinkRealNum || String(highestNum));
-
-    // ── Tags / Géneros ────────────────────────────────────────────────────
-    const tags = [];
-    $('a[href*="gender="]').each((_, el) => {
-      const tag = $(el).text().trim();
-      if (tag) tags.push(tag.toLowerCase());
-    });
-    const isEcchi = tags.some(t => t.includes('ecchi') || t.includes('erotico') || t.includes('adulto'));
-
-    return {
-      projectName,
-      thumbnail,
-      chapterNum,
-      chapterTitle: null,
-      chapterUrl: chapterUrl
-        ? (chapterUrl.startsWith('http') ? chapterUrl : BASE_URL + chapterUrl)
-        : null,
-      source: 'colorcito',
-      tags,
-      isEcchi,
-    };
-
-  } catch (err) {
-    logger.error('Colorcito', `Error scrapeando ${projectUrl}: ${err.message}`);
+    const path = new URL(url).pathname.replace(/\/$/, '');
+    const parts = path.split('/').filter(Boolean);
+    return parts[parts.length - 1] || null;
+  } catch {
     return null;
   }
 }
 
 /**
- * Búsqueda en Colorcito por nombre.
+ * Obtiene el capítulo más reciente de un proyecto.
+ * @param {string} projectUrl  URL del manga en Colorcito (cualquier formato)
+ * @returns {{ chapterNum, chapterTitle, chapterUrl, thumbnail, projectName } | null}
  */
-async function searchManga(query) {
+async function getLatestChapter(projectUrl) {
+  const slug = extractSlug(projectUrl);
+  if (!slug) {
+    logger.warn('Colorcito', `No se pudo extraer slug de: ${projectUrl}`);
+    return null;
+  }
+
   try {
-    const searchUrl = `${BASE_URL}/?s=${encodeURIComponent(query)}&post_type=wp-manga`;
-    const { data: html } = await axios.get(searchUrl, { headers: HEADERS, timeout: 15000 });
-    const $ = cheerio.load(html);
-
-    const results = [];
-    $('div.c-tabs-item__content, .c-image-hover').each((_, el) => {
-      const name  = $(el).find('h4 a, .post-title a').first().text().trim();
-      const href  = $(el).find('h4 a, .post-title a').first().attr('href');
-      const img   = $(el).find('img').first().attr('src') ||
-                    $(el).find('img').first().attr('data-src');
-
-      if (name && href) results.push({ name, url: href, thumbnail: img || null });
+    const { data } = await axios.get(`${API_BASE}/serie/${slug}`, {
+      headers: HEADERS,
+      timeout: 15_000,
     });
 
-    return results.slice(0, 10);
+    const serie    = data?.serie;
+    const chapters = serie?.chapters;
+    if (!serie || !chapters?.length) {
+      logger.warn('Colorcito', `Sin capítulos para slug: ${slug}`);
+      return null;
+    }
+
+    // chapters viene ordenado descendente (mayor num = más reciente primero)
+    const latest = chapters.reduce((max, c) => c.num > max.num ? c : max, chapters[0]);
+
+    return {
+      projectName:  serie.name,
+      thumbnail:    serie.urlImg || null,
+      chapterNum:   String(latest.num),
+      chapterTitle: latest.name || null,
+      chapterUrl:   `${SITE_BASE}/ver/${slug}/${latest.slug}`,
+      source:       'colorcito',
+    };
+
   } catch (err) {
-    logger.error('Colorcito', `Error buscando "${query}": ${err.message}`);
-    return [];
+    logger.error('Colorcito', `Error en "${slug}": ${err.message}`);
+    return null;
   }
+}
+
+/**
+ * Búsqueda por nombre en Colorcito.
+ * Si el endpoint oficial de búsqueda no está disponible, intenta
+ * resolver el slug directamente y devuelve el resultado como lista.
+ */
+async function searchManga(query) {
+  if (!query?.trim()) return [];
+
+  // Intento 1: slug normalizado (reemplaza espacios y tildes comunes)
+  const slug = query.trim()
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+
+  try {
+    const { data } = await axios.get(`${API_BASE}/serie/${slug}`, {
+      headers: HEADERS,
+      timeout: 10_000,
+    });
+    if (data?.serie) {
+      const s = data.serie;
+      return [{
+        name:      s.name,
+        url:       `${SITE_BASE}/ver/${s.slug}`,
+        thumbnail: s.urlImg || null,
+        slug:      s.slug,
+      }];
+    }
+  } catch { /* slug no coincidió exactamente */ }
+
+  // Si no encontró nada, retorna vacío.
+  // El endpoint REST de búsqueda libre aún no fue identificado.
+  logger.warn('Colorcito', `searchManga sin resultados para: "${query}"`);
+  return [];
 }
 
 module.exports = { getLatestChapter, searchManga };
