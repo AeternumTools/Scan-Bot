@@ -35,7 +35,7 @@ module.exports = {
       message.guild &&
       isAllowedGuild(message.guild.id) &&
       !message.author.bot &&
-      message.mentions.has(message.client.user) &&
+      message.mentions.has(message.client.user, { ignoreEveryone: true, ignoreRoles: true }) &&
       memberHasRole(message.member, allowedRoles)
     ) {
       await message.channel.sendTyping();
