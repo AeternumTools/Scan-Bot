@@ -1,15 +1,12 @@
 // src/events/messageCreate.js
-// Escucha mensajes: agente IA si mencionan a Lumi en canal staff, tickets/reclutamiento en el resto
 const { Events } = require('discord.js');
 const lumiAgent  = require('./lumiAgent');
-const { callAgent }                 = require('../services/groqService');
-const { DEFINITIONS, getExecutors } = require('../services/lumiTools');
-const { SYSTEM_PROMPT }             = require('../utils/lumi');
-const logger                        = require('../utils/logger');
+const { callAgent }                       = require('../services/groqService');
+const { DEFINITIONS, getExecutors }       = require('../services/lumiTools');
+const { buildSystemPrompt }               = require('../utils/lumi');
+const { loadConversation, appendToConversation, touchStaff, buildMemoryContext } = require('../services/memoryService');
+const logger = require('../utils/logger');
 
-const MAX_HISTORY = 8;
-
-// Servidores donde el agente está activo (los dos ya definidos en .env)
 function isAllowedGuild(guildId) {
   return (
     guildId === process.env.DISCORD_GUILD_ID ||
@@ -17,14 +14,13 @@ function isAllowedGuild(guildId) {
   );
 }
 
-// Roles autorizados — LUMI_AI_STAFF_ROLE_IDS (comma-separated, opcional)
 function getAllowedRoles() {
   return (process.env.LUMI_AI_STAFF_ROLE_IDS || '')
     .split(',').map(s => s.trim()).filter(Boolean);
 }
 
 function memberHasRole(member, roleIds) {
-  if (!roleIds.length) return true; // sin restricción configurada → todos pueden
+  if (!roleIds.length) return true;
   return roleIds.some(id => member.roles.cache.has(id));
 }
 
@@ -44,25 +40,24 @@ module.exports = {
     ) {
       await message.channel.sendTyping();
 
-      try {
-        // Historial reciente del canal (sin el mensaje actual)
-        const fetched = await message.channel.messages.fetch({ limit: MAX_HISTORY, before: message.id });
-        const history = [...fetched.values()]
-          .reverse()
-          .map(m => ({
-            role:    m.author.id === message.client.user.id ? 'assistant' : 'user',
-            content: m.author.id === message.client.user.id
-              ? m.content
-              : `[${m.author.username}|${m.author.id}]: ${m.content}`,
-          }));
+      const { id: authorId, username } = message.author;
+      const channelId = message.channel.id;
+      const userText  = message.content.replace(/<@!?\d+>/g, '').trim();
+      const userMsg   = { role: 'user', content: `[${username}|${authorId}]: ${userText}` };
 
-        // Texto del mensaje sin los mentions
-        const userText = message.content.replace(/<@!?\d+>/g, '').trim();
+      try {
+        // Registrar al usuario y cargar contexto de memoria
+        touchStaff(authorId, username);
+        const memoryContext = buildMemoryContext();
+        const systemPrompt  = buildSystemPrompt(memoryContext);
+
+        // Historial persistente del canal (sobrevive reinicios y cambios de modelo)
+        const history = loadConversation(channelId);
 
         const messages = [
-          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: systemPrompt },
           ...history,
-          { role: 'user', content: `[${message.author.username}|${message.author.id}]: ${userText}` },
+          userMsg,
         ];
 
         const reply = await callAgent(
@@ -71,10 +66,13 @@ module.exports = {
           getExecutors({ client: message.client }),
         );
 
+        // Guardar el intercambio en disco
+        appendToConversation(channelId, userMsg, { role: 'assistant', content: reply });
+
         await message.reply(reply);
       } catch (err) {
         logger.error('LumiAI', `Error en agente: ${err.message}`);
-        await message.reply('Algo salió mal procesando tu consulta. Inténtalo de nuevo.');
+        await message.reply('Algo salió mal. Intenta de nuevo.');
       }
       return;
     }
