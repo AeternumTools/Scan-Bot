@@ -135,6 +135,11 @@ function stop() {
   }
 }
 
+function restart() {
+  stop();
+  if (_client) start(_client);
+}
+
 /** Fuerza una verificación inmediata (útil desde un comando de admin) */
 async function forceCheck(client) {
   _client = client || _client;
@@ -145,4 +150,4 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-module.exports = { start, stop, forceCheck };
+module.exports = { start, stop, restart, forceCheck };

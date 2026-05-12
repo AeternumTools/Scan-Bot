@@ -3,9 +3,10 @@
 // Las variables se leen de process.env y los overrides se guardan en data/config.json.
 // Los cambios aplican inmediatamente sin reiniciar Railway.
 
-const path   = require('path');
-const fs     = require('fs-extra');
-const logger = require('../utils/logger');
+const path    = require('path');
+const fs      = require('fs-extra');
+const logger  = require('../utils/logger');
+const monitor = require('./monitor');
 
 const CONFIG_FILE = path.join('data', 'config.json');
 
@@ -150,6 +151,12 @@ function setVariable(nameOrAlias, value) {
 
   const label = VAR_CONFIG[resolved].label;
   logger.info('Config', `Variable actualizada: ${resolved} = ${value}`);
+
+  // Reiniciar el monitor si cambia el intervalo o la zona horaria
+  if (resolved === 'CHECK_INTERVAL_MINUTES' || resolved === 'TIMEZONE') {
+    monitor.restart();
+    logger.info('Config', 'Monitor reiniciado con nuevo intervalo/timezone.');
+  }
 
   return { variable: resolved, label, valor: value };
 }
