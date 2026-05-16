@@ -2,12 +2,12 @@
 const { Events } = require('discord.js');
 const lumiAgent  = require('./lumiAgent');
 const { callAgent }                       = require('../services/groqService');
-const { DEFINITIONS, getExecutors }       = require('../services/lumiTools');
+const { getDefinitions, getExecutors }    = require('../services/lumiTools');
 const { buildSystemPrompt }               = require('../utils/lumi');
 const { loadConversation, appendToConversation, touchStaff, buildMemoryContext } = require('../services/memoryService');
 const logger = require('../utils/logger');
 
-function isAllowedGuild(guildId) {
+function isHomeGuild(guildId) {
   return (
     guildId === process.env.DISCORD_GUILD_ID ||
     guildId === process.env.DISCORD_READER_GUILD_ID
@@ -29,15 +29,29 @@ module.exports = {
   async execute(message) {
 
     // ── Agente de IA ─────────────────────────────────────────────────────────
-    const allowedRoles = getAllowedRoles();
-
     if (
-      message.guild &&
-      isAllowedGuild(message.guild.id) &&
-      !message.author.bot &&
-      message.mentions.has(message.client.user, { ignoreEveryone: true, ignoreRoles: true }) &&
-      memberHasRole(message.member, allowedRoles)
+      !message.guild ||
+      message.author.bot ||
+      !message.mentions.has(message.client.user, { ignoreEveryone: true, ignoreRoles: true })
     ) {
+      // No es para Lumi → flujo de tickets/reclutamiento
+      await lumiAgent.execute(message);
+      return;
+    }
+
+    const isHome = isHomeGuild(message.guild.id);
+    const mode   = isHome ? 'home' : 'external';
+
+    // En servidores caseros exigimos rol de staff. En externos, cualquiera puede chatear.
+    if (isHome) {
+      const allowedRoles = getAllowedRoles();
+      if (!memberHasRole(message.member, allowedRoles)) {
+        await lumiAgent.execute(message);
+        return;
+      }
+    }
+
+    {
       await message.channel.sendTyping();
 
       const { id: authorId, username } = message.author;
@@ -46,12 +60,11 @@ module.exports = {
       const userMsg   = { role: 'user', content: `[${username}|${authorId}]: ${userText}` };
 
       try {
-        // Registrar al usuario y cargar contexto de memoria
-        touchStaff(authorId, username);
-        const memoryContext = buildMemoryContext();
-        const systemPrompt  = buildSystemPrompt(memoryContext);
+        // Registrar al usuario y cargar contexto de memoria solo en home
+        if (isHome) touchStaff(authorId, username);
+        const memoryContext = isHome ? buildMemoryContext() : '';
+        const systemPrompt  = buildSystemPrompt(memoryContext, { mode, guildName: message.guild.name });
 
-        // Historial persistente del canal (sobrevive reinicios y cambios de modelo)
         const history = loadConversation(channelId);
 
         const messages = [
@@ -62,22 +75,16 @@ module.exports = {
 
         const reply = await callAgent(
           messages,
-          DEFINITIONS,
-          getExecutors({ client: message.client }),
+          getDefinitions(mode),
+          getExecutors({ client: message.client, message, mode }),
         );
 
-        // Guardar el intercambio en disco
         appendToConversation(channelId, userMsg, { role: 'assistant', content: reply });
-
         await message.reply(reply);
       } catch (err) {
         logger.error('LumiAI', `Error en agente: ${err.message}`);
         await message.reply('Algo salió mal. Intenta de nuevo.');
       }
-      return;
     }
-
-    // ── Flujo existente: tickets y reclutamiento ──────────────────────────────
-    await lumiAgent.execute(message);
   },
 };

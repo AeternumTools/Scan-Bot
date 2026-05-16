@@ -5,8 +5,16 @@ const drive     = require('./driveService');
 const colorcito = require('./colorcito');
 const announcer = require('./announcer');
 const railway   = require('./railwayService');
+const mod       = require('./modService');
 const { Projects } = require('../utils/storage');
 const logger    = require('../utils/logger');
+
+// Cada tool lleva un campo _scope:
+//   'home' → solo en servidores caseros (Aeternum)
+//   'all'  → en cualquier servidor donde esté Lumi
+function withScope(scope, tool) {
+  return { ...tool, _scope: scope };
+}
 
 // ── Definiciones de tools (schema para Groq) ──────────────────────────────────
 
@@ -160,8 +168,83 @@ const DEFINITIONS = [
   },
 ];
 
+// ── Tools de moderación (disponibles en TODOS los servidores) ────────────────
+const MOD_DEFINITIONS = [
+  {
+    type: 'function',
+    function: {
+      name: 'banear_usuario',
+      description: 'Banea a un usuario del servidor actual. Requiere que tanto el bot como quien lo pide tengan permiso de "Banear miembros".',
+      parameters: {
+        type: 'object',
+        properties: {
+          usuario: { type: 'string', description: 'ID del usuario o mención (<@id>).' },
+          razon:   { type: 'string', description: 'Razón del baneo (opcional).' },
+          dias_borrar: { type: 'integer', description: 'Días de mensajes a borrar (0-7, default 0).' },
+        },
+        required: ['usuario'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'expulsar_usuario',
+      description: 'Expulsa (kick) a un usuario del servidor actual. Requiere que tanto el bot como quien lo pide tengan permiso de "Expulsar miembros".',
+      parameters: {
+        type: 'object',
+        properties: {
+          usuario: { type: 'string', description: 'ID del usuario o mención (<@id>).' },
+          razon:   { type: 'string', description: 'Razón de la expulsión (opcional).' },
+        },
+        required: ['usuario'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'silenciar_usuario',
+      description: 'Aplica timeout (silenciar temporalmente) a un usuario. Duración entre 1 y 40320 minutos (28 días máx).',
+      parameters: {
+        type: 'object',
+        properties: {
+          usuario: { type: 'string', description: 'ID o mención del usuario.' },
+          minutos: { type: 'integer', description: 'Duración en minutos (1-40320).' },
+          razon:   { type: 'string', description: 'Razón del silencio (opcional).' },
+        },
+        required: ['usuario', 'minutos'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'quitar_silencio',
+      description: 'Quita el timeout activo a un usuario antes de que expire.',
+      parameters: {
+        type: 'object',
+        properties: {
+          usuario: { type: 'string', description: 'ID o mención del usuario.' },
+        },
+        required: ['usuario'],
+      },
+    },
+  },
+];
+
+// Asigna scopes y devuelve definiciones según el modo del servidor
+function getDefinitions(mode = 'home') {
+  const homeTools = DEFINITIONS.map(d => withScope('home', d));
+  const allTools  = MOD_DEFINITIONS.map(d => withScope('all', d));
+  if (mode === 'home') return [...homeTools, ...allTools];
+  return allTools; // servidor externo → solo mod + conversación
+}
+
 // ── Executors ─────────────────────────────────────────────────────────────────
-// context.client → instancia del Discord Client (necesario para anunciar)
+// context.client  → instancia del Discord Client
+// context.message → mensaje original (necesario para mod tools)
+// context.mode    → 'home' o 'external'
 
 function getExecutors(context = {}) {
   return {
@@ -307,7 +390,28 @@ function getExecutors(context = {}) {
       }
     },
 
+    // ── Moderación (disponibles en cualquier servidor) ──────────────────────
+    banear_usuario: async (args) => {
+      try { return await mod.banUser({ message: context.message, ...args }); }
+      catch (err) { return { error: err.message }; }
+    },
+
+    expulsar_usuario: async (args) => {
+      try { return await mod.kickUser({ message: context.message, ...args }); }
+      catch (err) { return { error: err.message }; }
+    },
+
+    silenciar_usuario: async (args) => {
+      try { return await mod.timeoutUser({ message: context.message, ...args }); }
+      catch (err) { return { error: err.message }; }
+    },
+
+    quitar_silencio: async (args) => {
+      try { return await mod.untimeoutUser({ message: context.message, ...args }); }
+      catch (err) { return { error: err.message }; }
+    },
+
   };
 }
 
-module.exports = { DEFINITIONS, getExecutors };
+module.exports = { DEFINITIONS, MOD_DEFINITIONS, getDefinitions, getExecutors };
