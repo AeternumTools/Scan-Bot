@@ -111,13 +111,24 @@ async function checkAllProjects(sendSummary = false) {
 
 // ── Control del scheduler ─────────────────────────────────────────────────────
 
+// Construye una expresión cron válida según los minutos.
+// cron `*/N` solo soporta N = 0-59, así que para intervalos mayores
+// hay que convertir a horas o usar valores explícitos.
+function buildCronExpr(minutes) {
+  if (minutes < 1) minutes = 25;
+  if (minutes <= 59) return `*/${minutes} * * * *`;          // cada N minutos
+  const hours = Math.round(minutes / 60);
+  if (hours <= 23) return `0 */${hours} * * *`;               // cada N horas
+  return '0 0 * * *';                                         // tope: una vez al día
+}
+
 function start(client) {
   _client = client;
 
-  const minutes = parseInt(process.env.CHECK_INTERVAL_MINUTES || '25', 10);
-  const cronExpr = `*/${minutes} * * * *`; // cada N minutos
+  const minutes  = parseInt(process.env.CHECK_INTERVAL_MINUTES || '25', 10);
+  const cronExpr = buildCronExpr(minutes);
 
-  logger.info('Monitor', `Iniciando scheduler: cada ${minutes} minutos (cron: ${cronExpr})`);
+  logger.info('Monitor', `Iniciando scheduler: cada ${minutes} min (cron: "${cronExpr}")`);
 
   // Primera verificación al iniciar (después de 10 seg para dejar que Discord conecte)
   setTimeout(() => checkAllProjects(), 10_000);
