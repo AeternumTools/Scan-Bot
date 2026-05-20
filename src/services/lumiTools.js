@@ -149,17 +149,17 @@ const DEFINITIONS = [
     type: 'function',
     function: {
       name: 'editar_variable',
-      description: 'Edita una variable de configuración del bot en Railway. Acepta el nombre de la variable en lenguaje natural (ej: "canal de anuncios", "intervalo", "rol de mod") o el nombre técnico exacto. NO puede tocar tokens, API keys ni credenciales. Cambiar una variable reinicia el bot en ~30-60 segundos.',
+      description: 'Edita una variable de configuración del bot. Acepta el nombre en lenguaje natural (ej: "canal de anuncios", "intervalo", "rol de mod") o el nombre técnico. El cambio aplica de inmediato y persiste entre reinicios.',
       parameters: {
         type: 'object',
         properties: {
           nombre: {
             type: 'string',
-            description: 'Nombre de la variable en lenguaje natural o nombre técnico. Ejemplos: "canal de anuncios", "ANNOUNCEMENT_CHANNEL_ID", "intervalo", "zona horaria", "canal de raws".',
+            description: 'Nombre de la variable. Ejemplos: "canal de anuncios", "intervalo", "zona horaria", "canal de raws".',
           },
           valor: {
             type: 'string',
-            description: 'Nuevo valor para la variable (ID de canal, ID de rol, número de minutos, etc.).',
+            description: 'Nuevo valor. CONVERSIONES IMPORTANTES — el intervalo SIEMPRE está en MINUTOS: si el usuario dice "1 hora" usa "60", "6 horas" usa "360", "30 minutos" usa "30". Si te dice solo un número con "horas", multiplica por 60 antes de pasarlo.',
           },
         },
         required: ['nombre', 'valor'],

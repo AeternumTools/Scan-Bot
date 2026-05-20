@@ -8,7 +8,9 @@ const fs      = require('fs-extra');
 const logger  = require('../utils/logger');
 const monitor = require('./monitor');
 
-const CONFIG_FILE = path.join('data', 'config.json');
+// Usa el MISMO archivo que /configurar — así applyBotConfig() en ready.js
+// carga los cambios de Lumi al reiniciar el bot.
+const CONFIG_FILE = path.join('data', 'bot_config.json');
 
 // ── Diccionario: variable → nombre legible + aliases ─────────────────────────
 // type: 'channel' → <#id>, 'role' → <@&id>, 'roles' → múltiples <@&id>, 'text' → sin formato
