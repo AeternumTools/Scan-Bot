@@ -5,18 +5,20 @@ const { callAgent }                       = require('../services/groqService');
 const { getDefinitions, getExecutors }    = require('../services/lumiTools');
 const { buildSystemPrompt }               = require('../utils/lumi');
 const { loadConversation, appendToConversation, touchStaff, buildMemoryContext } = require('../services/memoryService');
+const serverConfig = require('../services/serverConfigService');
 const logger = require('../utils/logger');
 
+// Un servidor es "home" si tiene config propia o si es uno de los legacy del .env
 function isHomeGuild(guildId) {
+  if (serverConfig.isConfigured(guildId)) return true;
   return (
     guildId === process.env.DISCORD_GUILD_ID ||
     guildId === process.env.DISCORD_READER_GUILD_ID
   );
 }
 
-function getAllowedRoles() {
-  return (process.env.LUMI_AI_STAFF_ROLE_IDS || '')
-    .split(',').map(s => s.trim()).filter(Boolean);
+function getAllowedRoles(guildId) {
+  return serverConfig.get(guildId, 'roles.aiStaff') || [];
 }
 
 function memberHasRole(member, roleIds) {
@@ -44,7 +46,7 @@ module.exports = {
 
     // En servidores caseros exigimos rol de staff. En externos, cualquiera puede chatear.
     if (isHome) {
-      const allowedRoles = getAllowedRoles();
+      const allowedRoles = getAllowedRoles(message.guild.id);
       if (!memberHasRole(message.member, allowedRoles)) {
         await lumiAgent.execute(message);
         return;
@@ -63,7 +65,12 @@ module.exports = {
         // Registrar al usuario y cargar contexto de memoria solo en home
         if (isHome) touchStaff(authorId, username);
         const memoryContext = isHome ? buildMemoryContext() : '';
-        const systemPrompt  = buildSystemPrompt(memoryContext, { mode, guildName: message.guild.name });
+        const ownerId       = serverConfig.getOwnerId(message.guild.id);
+        const systemPrompt  = buildSystemPrompt(memoryContext, {
+          mode,
+          guildName: message.guild.name,
+          ownerId,
+        });
 
         const history = loadConversation(channelId);
 
