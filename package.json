@@ -8,7 +8,8 @@
     "dev": "nodemon src/index.js",
     "deploy": "node src/deploy-commands.js",
     "backup": "node scripts/backup.js",
-    "restore": "node scripts/restore.js"
+    "restore": "node scripts/restore.js",
+    "google-token": "node scripts/get-google-token.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.17",
