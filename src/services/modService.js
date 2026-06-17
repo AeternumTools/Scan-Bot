@@ -89,4 +89,55 @@ async function untimeoutUser({ message, usuario }) {
   return { ok: true, mensaje: `Le quité el silencio a ${target.user.tag}.` };
 }
 
-module.exports = { banUser, kickUser, timeoutUser, untimeoutUser };
+// ── Roles de staff de Aeternum (clave → { id, name, extra:[ids] }) ───────────
+// Fuente única; /moderar y el agente IA comparten este mapa.
+const STAFF_ROLES = {
+  profesor:    { id: '1450701377587122312', name: 'Profesor',    extra: [] },
+  typesetter:  { id: '1368818361915408485', name: 'Typesetter',  extra: [] },
+  cleaner:     { id: '1368818132948488294', name: 'Cleaner',     extra: [] },
+  traductor:   { id: '1368817756870545510', name: 'Traductor',   extra: [] },
+  editor:      { id: '1368817956657561650', name: 'Editor',      extra: ['1368818361915408485', '1368818280717877359', '1368818132948488294'] },
+  qc:          { id: '1368818036437680128', name: 'QC',          extra: [] },
+  redibujador: { id: '1368818280717877359', name: 'Redibujador', extra: ['1368818132948488294'] },
+  staff:       { id: '1368818898677272597', name: 'Staff',       extra: [] },
+  nuevo:       { id: '1368819324608974950', name: 'Nuevo',       extra: [] },
+};
+
+async function assignStaffRole({ message, usuario, rol }) {
+  await ensurePermissions(message, PermissionsBitField.Flags.ManageRoles, 'Gestionar roles');
+  const info = STAFF_ROLES[String(rol || '').toLowerCase()];
+  if (!info) throw new Error(`Rol desconocido: "${rol}". Opciones: ${Object.keys(STAFF_ROLES).join(', ')}.`);
+  const id = parseUserId(usuario);
+  if (!id) throw new Error('Pásame un ID o mención de usuario válida.');
+  const target = await message.guild.members.fetch(id).catch(() => null);
+  if (!target) throw new Error(`No encontré al usuario con ID ${id} en este servidor.`);
+
+  if (info === STAFF_ROLES.staff) await target.roles.remove(STAFF_ROLES.nuevo.id).catch(() => {});
+  const added = [];
+  for (const rId of [info.id, ...info.extra]) {
+    const role = message.guild.roles.cache.get(rId);
+    if (role) { await target.roles.add(role).catch(() => {}); added.push(role.name); }
+  }
+  logger.info('Mod', `Rol ${info.name} → ${target.user.tag}`);
+  return { ok: true, mensaje: `Le di el rol ${info.name}${info.extra.length ? ` (+ extras)` : ''} a ${target.user.username}.`, roles: added };
+}
+
+async function removeStaffRole({ message, usuario, rol }) {
+  await ensurePermissions(message, PermissionsBitField.Flags.ManageRoles, 'Gestionar roles');
+  const info = STAFF_ROLES[String(rol || '').toLowerCase()];
+  if (!info) throw new Error(`Rol desconocido: "${rol}". Opciones: ${Object.keys(STAFF_ROLES).join(', ')}.`);
+  const id = parseUserId(usuario);
+  if (!id) throw new Error('Pásame un ID o mención de usuario válida.');
+  const target = await message.guild.members.fetch(id).catch(() => null);
+  if (!target) throw new Error(`No encontré al usuario con ID ${id} en este servidor.`);
+
+  const role = message.guild.roles.cache.get(info.id);
+  if (role) await target.roles.remove(role).catch(() => {});
+  logger.info('Mod', `Quitar rol ${info.name} → ${target.user.tag}`);
+  return { ok: true, mensaje: `Le quité el rol ${info.name} a ${target.user.username}.` };
+}
+
+module.exports = {
+  banUser, kickUser, timeoutUser, untimeoutUser,
+  assignStaffRole, removeStaffRole, STAFF_ROLES,
+};

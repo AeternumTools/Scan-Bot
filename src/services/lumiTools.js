@@ -1,13 +1,25 @@
 // src/services/lumiTools.js
 // Herramientas disponibles para el agente de Lumi (formato OpenAI/Groq tool-use)
 
+const axios     = require('axios');
 const drive     = require('./driveService');
 const colorcito = require('./colorcito');
 const announcer = require('./announcer');
 const railway   = require('./railwayService');
 const mod       = require('./modService');
-const { Projects } = require('../utils/storage');
+const monitor   = require('./monitor');
+const seriesRoles = require('./seriesRolesService');
+const { Projects, LastChapters } = require('../utils/storage');
 const logger    = require('../utils/logger');
+
+// Genera un ID slug a partir del nombre (igual criterio que /proyecto add)
+function slugify(name) {
+  return String(name)
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
 
 // Cada tool lleva un campo _scope:
 //   'home' → solo en servidores caseros (Aeternum)
@@ -141,28 +153,285 @@ const DEFINITIONS = [
     type: 'function',
     function: {
       name: 'ver_variables',
-      description: 'Muestra las variables de entorno del bot en Railway. Las credenciales sensibles aparecen enmascaradas. Indica cuáles pueden editarse.',
+      description: 'Muestra la configuración actual del bot (canales, roles, intervalo, zona horaria). Las credenciales sensibles aparecen enmascaradas. Solo lectura.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+];
+
+// ── Tools administrativas / "secretaria" (solo servidores caseros) ───────────
+// Acciones que normalmente haría el líder: gestión de proyectos, avisos,
+// sincronización, diagnóstico, config por proyecto, roles y Drive.
+const ADMIN_DEFINITIONS = [
+  {
+    type: 'function',
+    function: {
+      name: 'agregar_proyecto',
+      description: 'Registra un nuevo proyecto (manga/manhwa) en el bot. ACCIÓN: pide confirmación antes de ejecutar. Marca el capítulo actual de Colorcito como "ya visto" para no anunciarlo de golpe.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nombre:           { type: 'string', description: 'Nombre del manga/manhwa.' },
+          drive_folder:     { type: 'string', description: 'Nombre EXACTO de la carpeta en Google Drive.' },
+          categoria:        { type: 'string', description: 'Categoría.', enum: ['manhwas', 'mangas', 'novelas', 'joints'] },
+          colorcito_url:    { type: 'string', description: 'URL del proyecto en Colorcito (opcional pero recomendada).' },
+          creditos_default: { type: 'string', description: 'Créditos por defecto del equipo (opcional). Ej: "Trad: Ana | Clean: Bob".' },
+          tags:             { type: 'string', description: 'Tags separados por coma (opcional). Ej: "romance,accion,color".' },
+        },
+        required: ['nombre', 'drive_folder', 'categoria'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'eliminar_proyecto',
+      description: 'Elimina un proyecto del bot de forma permanente. ACCIÓN DESTRUCTIVA: confirma con el usuario antes de ejecutar.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'ID (slug) del proyecto a eliminar.' } },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'activar_pausar_proyecto',
+      description: 'Activa o pausa el monitoreo automático de un proyecto (alterna su estado activo/pausado).',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'ID (slug) del proyecto.' } },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'cambiar_estado_proyecto',
+      description: 'Cambia el estado editorial de un proyecto: en curso, completado, hiatus o dropeado.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id:     { type: 'string', description: 'ID (slug) del proyecto.' },
+          estado: { type: 'string', description: 'Nuevo estado.', enum: ['ongoing', 'completed', 'hiatus', 'dropped'] },
+        },
+        required: ['id', 'estado'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'sincronizar_cache',
+      description: 'Refresca el caché de últimos capítulos consultando Colorcito, para que el monitor no reanuncie capítulos viejos. Puede tardar varios segundos por proyecto.',
+      parameters: {
+        type: 'object',
+        properties: { proyecto: { type: 'string', description: 'ID del proyecto a sincronizar. Vacío = todos los activos.' } },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'verificar_ahora',
+      description: 'Fuerza una verificación inmediata de nuevos capítulos en todos los proyectos activos (equivale a esperar el chequeo automático).',
       parameters: { type: 'object', properties: {}, required: [] },
     },
   },
   {
     type: 'function',
     function: {
-      name: 'editar_variable',
-      description: 'Edita una variable de configuración del bot. Acepta el nombre en lenguaje natural (ej: "canal de anuncios", "intervalo", "rol de mod") o el nombre técnico. El cambio aplica de inmediato y persiste entre reinicios.',
+      name: 'ver_status_todos',
+      description: 'Resumen del estado de PRODUCCIÓN en Drive de todos los proyectos activos (cuántos capítulos y en qué etapa). Para un solo proyecto usa ver_estado_proyecto.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'diagnostico_sistema',
+      description: 'Autodiagnóstico del bot: conexión a Discord, variables, Google Drive, proyectos y scraper de Colorcito. Úsalo cuando pregunten si algo falla o cómo está "de salud".',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'publicar_aviso',
+      description: 'Publica un aviso oficial de texto en el canal de avisos (lectores o staff según el servidor donde se pide). ACCIÓN PÚBLICA: confirma el contenido con el usuario antes de publicar, sobre todo si lleva @everyone.',
       parameters: {
         type: 'object',
         properties: {
-          nombre: {
-            type: 'string',
-            description: 'Nombre de la variable. Ejemplos: "canal de anuncios", "intervalo", "zona horaria", "canal de raws".',
-          },
-          valor: {
-            type: 'string',
-            description: 'Nuevo valor. CONVERSIONES IMPORTANTES — el intervalo SIEMPRE está en MINUTOS: si el usuario dice "1 hora" usa "60", "6 horas" usa "360", "30 minutos" usa "30". Si te dice solo un número con "horas", multiplica por 60 antes de pasarlo.',
-          },
+          titulo:  { type: 'string', description: 'Título del aviso. Ej: "📢 Anuncio Oficial".' },
+          mensaje: { type: 'string', description: 'Cuerpo del aviso. Usa saltos de línea normales.' },
+          ping:    { type: 'string', description: 'A quién mencionar.', enum: ['everyone', 'here', 'none'] },
+          rol_id:  { type: 'string', description: 'ID de un rol específico a mencionar (opcional).' },
+          firma:   { type: 'string', description: 'Firma al pie (opcional). Por defecto: "Líder del equipo de Aeternum Translations".' },
+          imagen:  { type: 'string', description: 'URL directa de una imagen a adjuntar (opcional).' },
         },
-        required: ['nombre', 'valor'],
+        required: ['titulo', 'mensaje'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'borrar_archivo_drive',
+      description: 'Borra un archivo de Google Drive por su ID. ACCIÓN DESTRUCTIVA: confirma con el usuario antes de ejecutar.',
+      parameters: {
+        type: 'object',
+        properties: { file_id: { type: 'string', description: 'ID del archivo en Google Drive.' } },
+        required: ['file_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'borrar_raws_proyecto',
+      description: 'Borra las carpetas Raw de capítulos de un proyecto (para liberar espacio). ACCIÓN DESTRUCTIVA: confirma con el usuario antes de ejecutar.',
+      parameters: {
+        type: 'object',
+        properties: {
+          proyecto:  { type: 'string', description: 'ID (slug) del proyecto.' },
+          capitulos: { type: 'string', description: 'Números de capítulo separados por coma. Vacío = TODOS los capítulos del proyecto.' },
+        },
+        required: ['proyecto'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'subir_raws',
+      description: 'Sube a Drive (carpeta Raw del capítulo indicado) las imágenes adjuntas en el MISMO mensaje del usuario. El usuario debe adjuntar las imágenes al mensaje donde te lo pide.',
+      parameters: {
+        type: 'object',
+        properties: {
+          proyecto: { type: 'string', description: 'ID (slug) del proyecto.' },
+          capitulo: { type: 'string', description: 'Número del capítulo (ej: "42" o "42.5").' },
+        },
+        required: ['proyecto', 'capitulo'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'configurar_reacciones',
+      description: 'Define las reacciones (emojis) que el bot pondrá al anunciar capítulos de un proyecto específico.',
+      parameters: {
+        type: 'object',
+        properties: {
+          proyecto: { type: 'string', description: 'ID (slug) del proyecto.' },
+          emojis:   { type: 'string', description: 'Emojis separados por espacio. Acepta unicode y custom (<:nombre:id>).' },
+        },
+        required: ['proyecto', 'emojis'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'configurar_rol_ping',
+      description: 'Asigna el rol del servidor de LECTORES que se mencionará al anunciar un proyecto. Pasa rol_id vacío para quitarlo.',
+      parameters: {
+        type: 'object',
+        properties: {
+          proyecto: { type: 'string', description: 'ID (slug) del proyecto.' },
+          rol_id:   { type: 'string', description: 'ID del rol en el servidor de lectores. Vacío = quitar el rol.' },
+        },
+        required: ['proyecto'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'configurar_estancado',
+      description: 'Configura cada cuántos días sin actividad se alerta de que un proyecto está estancado. 0 = desactivar la alerta.',
+      parameters: {
+        type: 'object',
+        properties: {
+          proyecto: { type: 'string', description: 'ID (slug) del proyecto.' },
+          dias:     { type: 'integer', description: 'Días sin actividad antes de alertar (0-60). 0 = desactivar.' },
+        },
+        required: ['proyecto', 'dias'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'dar_rol_staff',
+      description: 'Asigna un rol de staff de Aeternum a un miembro (incluye roles extra automáticos según el puesto). ACCIÓN: confirma antes de ejecutar.',
+      parameters: {
+        type: 'object',
+        properties: {
+          usuario: { type: 'string', description: 'ID o mención del usuario.' },
+          rol:     { type: 'string', description: 'Puesto/rol a asignar.', enum: ['profesor', 'typesetter', 'cleaner', 'traductor', 'editor', 'qc', 'redibujador', 'staff', 'nuevo'] },
+        },
+        required: ['usuario', 'rol'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'quitar_rol_staff',
+      description: 'Quita un rol de staff de Aeternum a un miembro.',
+      parameters: {
+        type: 'object',
+        properties: {
+          usuario: { type: 'string', description: 'ID o mención del usuario.' },
+          rol:     { type: 'string', description: 'Puesto/rol a quitar.', enum: ['profesor', 'typesetter', 'cleaner', 'traductor', 'editor', 'qc', 'redibujador', 'staff', 'nuevo'] },
+        },
+        required: ['usuario', 'rol'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'crear_rol_serie',
+      description: 'Crea un rol de Discord para una serie en el servidor de LECTORES y lo vincula al proyecto, con un emoji para el panel de roles. Después usa publicar_mensaje_roles para actualizar el panel.',
+      parameters: {
+        type: 'object',
+        properties: {
+          proyecto: { type: 'string', description: 'ID (slug) del proyecto.' },
+          emoji:    { type: 'string', description: 'Emoji para el panel de roles (unicode o custom <:nombre:id>).' },
+        },
+        required: ['proyecto', 'emoji'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'publicar_mensaje_roles',
+      description: 'Publica o actualiza el mensaje del panel de roles por reacción en el canal de lectores, sincronizando las reacciones. ACCIÓN PÚBLICA: confirma antes de ejecutar.',
+      parameters: {
+        type: 'object',
+        properties: {
+          imagen:      { type: 'string', description: 'URL de imagen a adjuntar (opcional).' },
+          emoji_todas: { type: 'string', description: 'Emoji para el rol "Todas las series" (opcional, se guarda).' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'quitar_rol_serie',
+      description: 'Quita un proyecto del panel de roles por reacción. Después republica el mensaje con publicar_mensaje_roles.',
+      parameters: {
+        type: 'object',
+        properties: { proyecto: { type: 'string', description: 'ID (slug) del proyecto.' } },
+        required: ['proyecto'],
       },
     },
   },
@@ -235,7 +504,7 @@ const MOD_DEFINITIONS = [
 
 // Asigna scopes y devuelve definiciones según el modo del servidor
 function getDefinitions(mode = 'home') {
-  const homeTools = DEFINITIONS.map(d => withScope('home', d));
+  const homeTools = [...DEFINITIONS, ...ADMIN_DEFINITIONS].map(d => withScope('home', d));
   const allTools  = MOD_DEFINITIONS.map(d => withScope('all', d));
   if (mode === 'home') return [...homeTools, ...allTools];
   return allTools; // servidor externo → solo mod + conversación
@@ -377,17 +646,339 @@ function getExecutors(context = {}) {
       }
     },
 
-    editar_variable: async ({ nombre, valor }) => {
+    // ── Gestión de proyectos (secretaria) ───────────────────────────────────
+    agregar_proyecto: async ({ nombre, drive_folder, categoria, colorcito_url, creditos_default, tags } = {}) => {
       try {
-        const result = railway.setVariable(nombre, valor);
-        return {
-          ok: true,
-          mensaje: `"${result.label}" actualizada a "${valor}". El cambio aplica de inmediato.`,
+        if (!nombre || !drive_folder || !categoria) {
+          return { error: 'Necesito al menos nombre, carpeta de Drive y categoría.' };
+        }
+        const id = slugify(nombre);
+        if (!id) return { error: 'No pude generar un ID válido a partir de ese nombre.' };
+        if (Projects.get(id)) return { error: `Ya existe un proyecto con el ID "${id}".` };
+
+        const project = {
+          id,
+          name: nombre,
+          category: categoria,
+          sources: { colorcito: colorcito_url || null },
+          driveFolder: drive_folder,
+          announcementChannel: null,
+          readerRoleId: null,
+          roleId: null,
+          reactions: null,
+          defaultCredits: creditos_default || null,
+          active: true,
+          addedAt: new Date().toISOString(),
+          tags: tags ? String(tags).split(',').map(t => t.trim()).filter(Boolean) : [],
+          status: 'ongoing',
+          thumbnail: null,
+          color: null,
         };
+
+        // Marcar el capítulo actual como "ya visto" para no anunciarlo al añadir
+        if (colorcito_url) {
+          try {
+            const chap = await colorcito.getLatestChapter(colorcito_url);
+            if (chap?.thumbnail) project.thumbnail = chap.thumbnail;
+            if (chap?.chapterNum) {
+              LastChapters.set(id, 'colorcito', { chapterNum: chap.chapterNum, chapterUrl: chap.chapterUrl });
+            }
+          } catch { /* no crítico */ }
+        }
+
+        Projects.save(project);
+        return { ok: true, mensaje: `Proyecto "${nombre}" agregado con ID "${id}".`, id, categoria };
       } catch (err) {
-        logger.error('LumiTools', `editar_variable: ${err.message}`);
+        logger.error('LumiTools', `agregar_proyecto: ${err.message}`);
         return { error: err.message };
       }
+    },
+
+    eliminar_proyecto: async ({ id } = {}) => {
+      const project = Projects.get(id);
+      if (!project) return { error: `No existe un proyecto con ID "${id}".` };
+      Projects.delete(id);
+      return { ok: true, mensaje: `Proyecto "${project.name}" (${id}) eliminado.` };
+    },
+
+    activar_pausar_proyecto: async ({ id } = {}) => {
+      const project = Projects.get(id);
+      if (!project) return { error: `No existe un proyecto con ID "${id}".` };
+      project.active = !project.active;
+      Projects.save(project);
+      return { ok: true, activo: project.active, mensaje: `"${project.name}" ${project.active ? 'activado' : 'pausado'}.` };
+    },
+
+    cambiar_estado_proyecto: async ({ id, estado } = {}) => {
+      const project = Projects.get(id);
+      if (!project) return { error: `No existe un proyecto con ID "${id}".` };
+      const validos = ['ongoing', 'completed', 'hiatus', 'dropped'];
+      if (!validos.includes(estado)) return { error: `Estado inválido. Usa: ${validos.join(', ')}.` };
+      project.status = estado;
+      Projects.save(project);
+      const labels = { ongoing: 'En curso', completed: 'Completado', hiatus: 'Hiatus', dropped: 'Dropeado' };
+      return { ok: true, mensaje: `Estado de "${project.name}" cambiado a: ${labels[estado]}.` };
+    },
+
+    sincronizar_cache: async ({ proyecto } = {}) => {
+      const lista = proyecto
+        ? [Projects.get(proyecto)].filter(Boolean)
+        : Projects.list().filter(p => p.active);
+      if (!lista.length) return { error: 'No encontré proyectos para sincronizar.' };
+
+      let actualizados = 0;
+      for (const project of lista) {
+        const url = project.sources?.colorcito;
+        if (!url) continue;
+        try {
+          const data = await colorcito.getLatestChapter(url);
+          if (!data?.chapterNum) continue;
+          const cached  = LastChapters.get(project.id, 'colorcito');
+          const liveN   = parseFloat(String(data.chapterNum).replace(',', '.'));
+          const cachedN = cached ? parseFloat(String(cached.chapterNum).replace(',', '.')) : -1;
+          if (liveN > cachedN) {
+            LastChapters.set(project.id, 'colorcito', { chapterNum: data.chapterNum, chapterUrl: data.chapterUrl });
+            actualizados++;
+          }
+        } catch { /* seguir */ }
+      }
+      return { ok: true, revisados: lista.length, actualizados,
+        mensaje: actualizados ? `${lista.length} proyecto(s) revisados, ${actualizados} actualizado(s).` : `${lista.length} proyecto(s) revisados. Todo ya estaba al día.` };
+    },
+
+    verificar_ahora: async () => {
+      const { client } = context;
+      if (!client?.isReady()) return { error: 'El cliente de Discord no está disponible.' };
+      try {
+        await monitor.forceCheck(client);
+        return { ok: true, mensaje: 'Verificación de capítulos completada. Si hubo novedades aparecen en el canal de registros.' };
+      } catch (err) {
+        logger.error('LumiTools', `verificar_ahora: ${err.message}`);
+        return { error: err.message };
+      }
+    },
+
+    ver_status_todos: async () => {
+      const activos = Projects.list().filter(p => p.active);
+      if (!activos.length) return { mensaje: 'No hay proyectos activos.' };
+      const resultados = [];
+      for (const p of activos) {
+        try {
+          const st = await drive.getProjectStatus(p.driveFolder, p.category);
+          resultados.push(st?.found
+            ? { proyecto: p.name, total_caps: st.totalCaps, ultimo_cap: st.lastCap, resumen: st.summary }
+            : { proyecto: p.name, error: 'Carpeta no encontrada en Drive' });
+        } catch (err) {
+          resultados.push({ proyecto: p.name, error: err.message });
+        }
+      }
+      return { total: activos.length, proyectos: resultados };
+    },
+
+    diagnostico_sistema: async () => {
+      const { client } = context;
+      const checks = {};
+
+      const ping = client?.ws?.ping ?? -1;
+      checks.discord = ping >= 0 && ping < 500 ? `OK (${ping}ms)` : `Lento/sin datos (${ping}ms)`;
+
+      const reqVars = ['DISCORD_TOKEN', 'DISCORD_CLIENT_ID', 'DISCORD_GUILD_ID', 'GDRIVE_ROOT_FOLDER_ID'];
+      const faltan = reqVars.filter(v => !process.env[v]);
+      checks.variables = faltan.length ? `Faltan: ${faltan.join(', ')}` : 'OK';
+
+      try {
+        await drive.listFolder(process.env.GDRIVE_ROOT_FOLDER_ID);
+        checks.google_drive = 'OK';
+      } catch (err) {
+        checks.google_drive = `Error: ${err.message}`;
+      }
+
+      const proyectos = Projects.list();
+      checks.proyectos = `${proyectos.length} registrados, ${proyectos.filter(p => p.active).length} activos`;
+
+      const conColor = proyectos.find(p => p.sources?.colorcito);
+      if (conColor) {
+        try {
+          const r = await Promise.race([
+            colorcito.getLatestChapter(conColor.sources.colorcito),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20000)),
+          ]);
+          checks.scraper_colorcito = r ? 'OK' : 'Sin datos (¿cambió el sitio?)';
+        } catch (err) {
+          checks.scraper_colorcito = `Error: ${err.message}`;
+        }
+      } else {
+        checks.scraper_colorcito = 'Sin proyectos de Colorcito para probar';
+      }
+
+      const todoOk = !faltan.length && checks.google_drive === 'OK' && (ping >= 0 && ping < 500);
+      return { todo_ok: todoOk, checks };
+    },
+
+    // ── Avisos y Drive (secretaria) ─────────────────────────────────────────
+    publicar_aviso: async ({ titulo, mensaje, ping = 'everyone', rol_id, firma, imagen } = {}) => {
+      const { client, message } = context;
+      if (!client?.isReady() || !message?.guild) return { error: 'No tengo contexto de servidor para publicar.' };
+      if (!titulo || !mensaje) return { error: 'Necesito título y mensaje.' };
+
+      const STAFF_GUILD_ID   = process.env.DISCORD_GUILD_ID;
+      const READER_GUILD_ID  = process.env.DISCORD_READER_GUILD_ID;
+      const STAFF_NOTICE_ID  = process.env.STAFF_NOTICE_ID;
+      const READER_NOTICE_ID = process.env.NOTICE_CHANNEL_ID;
+
+      const esStaff   = message.guild.id === STAFF_GUILD_ID;
+      const channelId = esStaff ? STAFF_NOTICE_ID : READER_NOTICE_ID;
+      if (!channelId) return { error: 'No hay canal de avisos configurado para este servidor.' };
+
+      let channel = null;
+      if (esStaff) {
+        channel = await message.guild.channels.fetch(channelId).catch(() => null);
+      } else if (READER_GUILD_ID) {
+        const g = await client.guilds.fetch(READER_GUILD_ID).catch(() => null);
+        if (g) channel = await g.channels.fetch(channelId).catch(() => null);
+      }
+      if (!channel) return { error: 'No pude acceder al canal de avisos.' };
+
+      const lines = [];
+      if (ping === 'everyone') lines.push('@everyone');
+      else if (ping === 'here') lines.push('@here');
+      if (rol_id) lines.push(`<@&${rol_id}>`);
+      lines.push('', `## ${titulo}`, '', String(mensaje).replace(/\\n/g, '\n'), '',
+        'Atentamente,', `**${firma || 'Líder del equipo de Aeternum Translations.'}**`);
+
+      const allowedMentions = { parse: [], roles: [] };
+      if (ping === 'everyone' || ping === 'here') allowedMentions.parse.push('everyone');
+      if (rol_id) allowedMentions.roles.push(rol_id);
+
+      const payload = { content: lines.join('\n'), allowedMentions };
+      if (imagen) payload.files = [{ attachment: imagen, name: 'imagen.jpg' }];
+
+      try {
+        await channel.send(payload);
+        return { ok: true, mensaje: `Aviso publicado en #${channel.name}.` };
+      } catch (err) {
+        logger.error('LumiTools', `publicar_aviso: ${err.message}`);
+        return { error: err.message };
+      }
+    },
+
+    borrar_archivo_drive: async ({ file_id } = {}) => {
+      if (!file_id) return { error: 'Necesito el ID del archivo.' };
+      try {
+        await drive.deleteFile(file_id);
+        return { ok: true, mensaje: `Archivo ${file_id} borrado de Drive.` };
+      } catch (err) {
+        logger.error('LumiTools', `borrar_archivo_drive: ${err.message}`);
+        return { error: err.message };
+      }
+    },
+
+    borrar_raws_proyecto: async ({ proyecto, capitulos } = {}) => {
+      const project = Projects.get(proyecto);
+      if (!project) return { error: `No existe un proyecto con ID "${proyecto}".` };
+      const nums = capitulos ? String(capitulos).split(',').map(s => s.trim()).filter(Boolean) : [];
+      try {
+        const r = await drive.deleteRawsFromProject(project.driveFolder, project.category, nums);
+        return { ok: true, borradas: r.deleted, omitidas: r.skipped,
+          mensaje: `Raws borradas: ${r.deleted}${nums.length ? ` (caps: ${nums.join(', ')})` : ' (todos)'}.` };
+      } catch (err) {
+        logger.error('LumiTools', `borrar_raws_proyecto: ${err.message}`);
+        return { error: err.message };
+      }
+    },
+
+    subir_raws: async ({ proyecto, capitulo } = {}) => {
+      const { message } = context;
+      const project = Projects.get(proyecto);
+      if (!project) return { error: `No existe un proyecto con ID "${proyecto}".` };
+      if (!capitulo) return { error: 'Necesito el número de capítulo.' };
+
+      const adjuntos = [...(message?.attachments?.values?.() || [])]
+        .filter(a => (a.contentType || '').startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(a.name || ''));
+      if (!adjuntos.length) return { error: 'No veo imágenes adjuntas en tu mensaje. Adjunta las raws e inténtalo de nuevo.' };
+
+      const images = [];
+      for (const a of adjuntos) {
+        try {
+          const res = await axios.get(a.url, { responseType: 'arraybuffer', timeout: 30_000 });
+          images.push({ name: a.name || `raw_${images.length + 1}.jpg`, buffer: Buffer.from(res.data), mimeType: a.contentType || 'image/jpeg' });
+        } catch (err) {
+          logger.error('LumiTools', `subir_raws descarga: ${err.message}`);
+        }
+      }
+      if (!images.length) return { error: 'No pude descargar las imágenes adjuntas.' };
+
+      try {
+        const r = await drive.uploadRawImages(project.driveFolder, project.category, String(capitulo), images);
+        return { ok: r.success, subidas: r.uploaded, total: r.total, capitulo_creado: r.chapterCreated,
+          aviso_almacenamiento: r.storageWarning ? `Drive al ${r.storagePercent}%` : null,
+          mensaje: `Subí ${r.uploaded}/${r.total} imagen(es) a la Raw del cap. ${capitulo} de "${project.name}".` };
+      } catch (err) {
+        logger.error('LumiTools', `subir_raws: ${err.message}`);
+        return { error: err.message };
+      }
+    },
+
+    // ── Config por proyecto ─────────────────────────────────────────────────
+    configurar_reacciones: async ({ proyecto, emojis } = {}) => {
+      const project = Projects.get(proyecto);
+      if (!project) return { error: `No existe un proyecto con ID "${proyecto}".` };
+      const emojiRegex = /(?:\p{Emoji_Presentation}|\p{Emoji}️|<a?:\w+:\d+>)/gu;
+      const lista = String(emojis || '').match(emojiRegex) || [];
+      if (!lista.length) return { error: 'No detecté emojis válidos.' };
+      project.reactions = lista;
+      Projects.save(project);
+      return { ok: true, mensaje: `Reacciones de "${project.name}" actualizadas: ${lista.join(' ')}`, reacciones: lista };
+    },
+
+    configurar_rol_ping: async ({ proyecto, rol_id } = {}) => {
+      const project = Projects.get(proyecto);
+      if (!project) return { error: `No existe un proyecto con ID "${proyecto}".` };
+      const id = rol_id ? String(rol_id).trim() : null;
+      if (id && !/^\d{17,20}$/.test(id)) return { error: 'El ID de rol no parece válido (deben ser 17-20 dígitos).' };
+      project.readerRoleId = id;
+      Projects.save(project);
+      return { ok: true, mensaje: id ? `Rol de ping de "${project.name}" actualizado.` : `Rol de ping de "${project.name}" eliminado.` };
+    },
+
+    configurar_estancado: async ({ proyecto, dias } = {}) => {
+      const project = Projects.get(proyecto);
+      if (!project) return { error: `No existe un proyecto con ID "${proyecto}".` };
+      const n = parseInt(dias, 10);
+      if (!Number.isFinite(n) || n < 0 || n > 60) return { error: 'Los días deben estar entre 0 y 60 (0 = desactivar).' };
+      project.staleAlertDays = n > 0 ? n : null;
+      Projects.save(project);
+      return { ok: true, mensaje: n > 0 ? `Alerta de estancado de "${project.name}" en ${n} día(s).` : `Alerta de estancado de "${project.name}" desactivada.` };
+    },
+
+    dar_rol_staff: async (args) => {
+      try { return await mod.assignStaffRole({ message: context.message, ...args }); }
+      catch (err) { return { error: err.message }; }
+    },
+
+    quitar_rol_staff: async (args) => {
+      try { return await mod.removeStaffRole({ message: context.message, ...args }); }
+      catch (err) { return { error: err.message }; }
+    },
+
+    // ── Roles de series (panel por reacción) ────────────────────────────────
+    crear_rol_serie: async ({ proyecto, emoji } = {}) => {
+      const { client } = context;
+      if (!client?.isReady()) return { error: 'El cliente de Discord no está disponible.' };
+      try { return await seriesRoles.crearRolSerie(client, proyecto, emoji, { actor: 'Lumi' }); }
+      catch (err) { logger.error('LumiTools', `crear_rol_serie: ${err.message}`); return { error: err.message }; }
+    },
+
+    publicar_mensaje_roles: async ({ imagen, emoji_todas } = {}) => {
+      const { client } = context;
+      if (!client?.isReady()) return { error: 'El cliente de Discord no está disponible.' };
+      try { return await seriesRoles.publicarMensajeRoles(client, { imagen: imagen || null, emojiTodas: emoji_todas || null }); }
+      catch (err) { logger.error('LumiTools', `publicar_mensaje_roles: ${err.message}`); return { error: err.message }; }
+    },
+
+    quitar_rol_serie: async ({ proyecto } = {}) => {
+      try { return await seriesRoles.quitarRolSerie(proyecto); }
+      catch (err) { logger.error('LumiTools', `quitar_rol_serie: ${err.message}`); return { error: err.message }; }
     },
 
     // ── Moderación (disponibles en cualquier servidor) ──────────────────────

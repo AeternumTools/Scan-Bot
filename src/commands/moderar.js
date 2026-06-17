@@ -3,20 +3,9 @@
 
 const { SlashCommandBuilder } = require('discord.js');
 const LUMI = require('../utils/lumi');
+const { STAFF_ROLES } = require('../services/modService');
 
 const MOD_ROLE_ID = '1368818622750789633';
-
-const STAFF_ROLES = {
-  profesor:    { id: '1450701377587122312', name: 'Profesor',    extra: [] },
-  typesetter:  { id: '1368818361915408485', name: 'Typesetter',  extra: [] },
-  cleaner:     { id: '1368818132948488294', name: 'Cleaner',     extra: [] },
-  traductor:   { id: '1368817756870545510', name: 'Traductor',   extra: [] },
-  editor:      { id: '1368817956657561650', name: 'Editor',      extra: ['1368818361915408485', '1368818280717877359', '1368818132948488294'] },
-  qc:          { id: '1368818036437680128', name: 'QC',          extra: [] },
-  redibujador: { id: '1368818280717877359', name: 'Redibujador', extra: ['1368818132948488294'] },
-  staff:       { id: '1368818898677272597', name: 'Staff',       extra: [] },
-  nuevo:       { id: '1368819324608974950', name: 'Nuevo',       extra: [] },
-};
 
 const data = new SlashCommandBuilder()
   .setName('moderar')
