@@ -90,7 +90,12 @@ module.exports = {
         await message.reply(reply);
       } catch (err) {
         logger.error('LumiAI', `Error en agente: ${err.message}`);
-        await message.reply('Algo salió mal. Intenta de nuevo.');
+        const esLimite = /429|rate limit|too many|tokens per|TPD|RPM|límite/i.test(err.message);
+        await message.reply(
+          esLimite
+            ? 'Estoy saturada en este momento (límite de la API). Dame unos segundos y lo vuelves a intentar.'
+            : `Algo salió mal: ${err.message}`
+        );
       }
     }
   },

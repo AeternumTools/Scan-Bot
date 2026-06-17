@@ -72,17 +72,21 @@ async function callWithTools(body, headers) {
 }
 
 // Detecta tool calls escritas como texto por el modelo.
-// Soporta: <function=name>{}</function>  y  <function=name>{}  (sin cierre)
+// Soporta varios formatos que filtran los modelos:
+//   <function=name>{json}</function>      (args en el cuerpo)
+//   <function=name>{json}                 (sin cierre)
+//   <function=name({json})>               (args entre paréntesis)
+//   <function=name({json})></function>
 function parseLeakedToolCalls(content) {
   const calls = [];
-  // Captura: <function=NOMBRE> seguido de JSON hasta </function> o fin de string
-  const regex = /<function=([a-zA-Z_]+)>([\s\S]*?)(?:<\/function>|$)/g;
+  // Grupo 1: nombre · Grupo 2: args entre paréntesis (opc) · Grupo 3: args en el cuerpo (opc)
+  const regex = /<function=([a-zA-Z0-9_]+)\s*(?:\(([\s\S]*?)\))?\s*>([\s\S]*?)(?:<\/function>|$)/g;
   let match;
   while ((match = regex.exec(content)) !== null) {
     const name    = match[1];
-    const rawArgs = match[2].trim();
+    const rawArgs = (match[2] != null ? match[2] : (match[3] || '')).trim();
     let args = {};
-    try { args = JSON.parse(rawArgs || '{}'); } catch { /* args vacíos */ }
+    try { args = JSON.parse(rawArgs || '{}'); } catch { /* args vacíos o no-JSON */ }
     calls.push({ name, args });
   }
   return calls;
