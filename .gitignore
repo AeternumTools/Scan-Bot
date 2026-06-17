@@ -3,6 +3,7 @@ node_modules/
 data/
 config/google-credentials.json
 *.log
+lumi-backup*.zip
 temp/
 .claude/
 .gemini/
