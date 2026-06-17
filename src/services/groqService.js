@@ -17,8 +17,6 @@ const MODEL_CHAIN = [
   'llama-3.1-8b-instant',                       // 500K TPD — más rápido, último recurso
 ];
 
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
 async function callModel(model, body, headers) {
   try {
     return await axios.post(GROQ_URL, { ...body, model }, { headers, timeout: 30_000 });
@@ -29,44 +27,75 @@ async function callModel(model, body, headers) {
   }
 }
 
-// Detecta si el 429 es por tokens por día (TPD) — en ese caso no tiene sentido esperar,
-// hay que saltar al siguiente modelo directamente.
+// Detecta si el 429 es por tokens por día (TPD) — en ese caso no tiene sentido
+// reintentar ese modelo: se marca como agotado y se salta hasta que resetee.
 function isTokensPerDay(err) {
   return err.status === 429 &&
     (err.detail?.includes('tokens per day') || err.detail?.includes('TPD'));
 }
 
-// Fallback entre modelos para CUALQUIER tipo de llamada.
-// - TPD (tokens/día agotados): salta al siguiente modelo sin esperar.
-// - RPM (requests/min): espera brevemente y reintenta el mismo modelo una vez.
-async function callWithFallback(body, headers, models = MODEL_CHAIN) {
-  for (let i = 0; i < models.length; i++) {
-    const model = models[i];
-    try {
-      const res = await callModel(model, body, headers);
-      if (i > 0) logger.info('Groq', `Usando modelo de fallback: ${model}`);
-      return res;
-    } catch (err) {
-      if (err.status === 429) {
-        if (isTokensPerDay(err)) {
-          // Cuota diaria agotada — pasar al siguiente sin esperar
-          logger.warn('Groq', `TPD agotado en ${model} → probando siguiente`);
-          continue;
-        }
-        // Rate limit por minuto — esperar un poco y reintentar una vez
-        if (i < models.length - 1) {
-          logger.warn('Groq', `429 RPM en ${model} → esperando 4s y probando siguiente`);
-          await sleep(4000);
-          continue;
-        }
-      }
-      throw err;
-    }
-  }
-  throw new Error('Todos los modelos alcanzaron su límite. Intenta en unos minutos.');
+// ── Memoria de modelos agotados por TPD ──────────────────────────────────────
+// Cuando un modelo agota sus tokens del día, lo dejamos fuera de la rotación y
+// lo re-probamos pasado un tiempo (por si su cuota ya reseteó).
+const TPD_COOLDOWN_MS = 30 * 60 * 1000; // re-probar cada 30 min
+const exhausted = new Map(); // model → timestamp hasta el que se considera agotado
+
+function isExhausted(model) {
+  const until = exhausted.get(model);
+  if (!until) return false;
+  if (Date.now() >= until) { exhausted.delete(model); return false; }
+  return true;
 }
 
-// Para tool use: misma lógica pero el 70b va primero por su mejor soporte.
+function markExhausted(model) {
+  exhausted.set(model, Date.now() + TPD_COOLDOWN_MS);
+}
+
+// ── Rotación round-robin ─────────────────────────────────────────────────────
+// Para repartir el consumo entre TODOS los modelos (y no quemar siempre el
+// primero), cada llamada arranca en un modelo distinto, saltando los agotados.
+let rotationIndex = 0;
+
+function buildAttemptOrder(models) {
+  const disponibles = models.filter(m => !isExhausted(m));
+  const pool  = disponibles.length ? disponibles : models; // si todos agotados, intenta igual
+  const start = rotationIndex % pool.length;
+  rotationIndex = (rotationIndex + 1) % pool.length;
+  return [...pool.slice(start), ...pool.slice(0, start)];
+}
+
+// Fallback entre modelos para CUALQUIER tipo de llamada.
+// Arranca en un modelo distinto cada vez (rotación) y, si falla, prueba los
+// demás. Los modelos con TPD agotado se marcan y se saltan.
+async function callWithFallback(body, headers, models = MODEL_CHAIN) {
+  const order = buildAttemptOrder(models);
+  let lastErr;
+
+  for (let i = 0; i < order.length; i++) {
+    const model = order[i];
+    try {
+      const res = await callModel(model, body, headers);
+      logger.info('Groq', `Modelo: ${model}${i > 0 ? ' (fallback)' : ''}`);
+      return res;
+    } catch (err) {
+      lastErr = err;
+      if (err.status === 429 && isTokensPerDay(err)) {
+        markExhausted(model);
+        logger.warn('Groq', `TPD agotado en ${model} → fuera de rotación 30 min`);
+        continue;
+      }
+      // RPM u otro fallo transitorio → probar el siguiente modelo (es distinto)
+      logger.warn('Groq', `Fallo en ${model} (${err.status || '?'}) → probando siguiente`);
+      continue;
+    }
+  }
+
+  throw lastErr || new Error('Todos los modelos alcanzaron su límite. Intenta en unos minutos.');
+}
+
+// Para tool use: misma rotación. Gracias al parser de tool-calls filtradas,
+// los modelos más pequeños también sirven aunque a veces escriban la llamada
+// como texto.
 async function callWithTools(body, headers) {
   return callWithFallback(body, headers, MODEL_CHAIN);
 }
