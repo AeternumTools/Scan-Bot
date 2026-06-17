@@ -134,6 +134,35 @@ el bot está en línea.
 
 ---
 
+## 🤖 Modo auto-actualización (recomendado para desarrollo)
+
+Si editas el código desde otro PC (o con Claude) y quieres que el PC que aloja
+el bot se **actualice solo**, arráncalo así en vez de `npm start`:
+
+```powershell
+npm run auto
+```
+
+Esto lanza un **supervisor** que:
+- Revisa GitHub cada 60s y, si hay commits nuevos en tu rama, hace `git pull`,
+  reinstala dependencias si cambiaron, y **reinicia el bot** automáticamente.
+- **Relanza el bot** si se cae por algún error.
+
+Así tu flujo queda: editas desde donde sea → `git push` → el host se actualiza
+solo en menos de un minuto. No tienes que tocar el PC del bot.
+
+Opciones (en el `.env`, opcionales):
+```env
+AUTO_UPDATE_INTERVAL_SEC=60          # cada cuántos segundos revisa
+AUTO_UPDATE_BRANCH=claude/amazing-wozniak-wzkvvo   # rama a seguir
+```
+
+> ⚠️ Con auto-update, el PC del bot debe ser **"solo recibir"**: no edites código
+> directamente ahí. Si haces cambios locales sin commitear, el `pull` se salta y
+> el supervisor te avisa en consola para que lo resuelvas a mano.
+
+---
+
 ## 🔁 Para futuros traslados
 
 Cada vez que quieras mover el bot a otro equipo:
