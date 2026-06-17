@@ -317,6 +317,81 @@ const ADMIN_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'configurar_reacciones',
+      description: 'Define las reacciones (emojis) que el bot pondrá al anunciar capítulos de un proyecto específico.',
+      parameters: {
+        type: 'object',
+        properties: {
+          proyecto: { type: 'string', description: 'ID (slug) del proyecto.' },
+          emojis:   { type: 'string', description: 'Emojis separados por espacio. Acepta unicode y custom (<:nombre:id>).' },
+        },
+        required: ['proyecto', 'emojis'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'configurar_rol_ping',
+      description: 'Asigna el rol del servidor de LECTORES que se mencionará al anunciar un proyecto. Pasa rol_id vacío para quitarlo.',
+      parameters: {
+        type: 'object',
+        properties: {
+          proyecto: { type: 'string', description: 'ID (slug) del proyecto.' },
+          rol_id:   { type: 'string', description: 'ID del rol en el servidor de lectores. Vacío = quitar el rol.' },
+        },
+        required: ['proyecto'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'configurar_estancado',
+      description: 'Configura cada cuántos días sin actividad se alerta de que un proyecto está estancado. 0 = desactivar la alerta.',
+      parameters: {
+        type: 'object',
+        properties: {
+          proyecto: { type: 'string', description: 'ID (slug) del proyecto.' },
+          dias:     { type: 'integer', description: 'Días sin actividad antes de alertar (0-60). 0 = desactivar.' },
+        },
+        required: ['proyecto', 'dias'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'dar_rol_staff',
+      description: 'Asigna un rol de staff de Aeternum a un miembro (incluye roles extra automáticos según el puesto). ACCIÓN: confirma antes de ejecutar.',
+      parameters: {
+        type: 'object',
+        properties: {
+          usuario: { type: 'string', description: 'ID o mención del usuario.' },
+          rol:     { type: 'string', description: 'Puesto/rol a asignar.', enum: ['profesor', 'typesetter', 'cleaner', 'traductor', 'editor', 'qc', 'redibujador', 'staff', 'nuevo'] },
+        },
+        required: ['usuario', 'rol'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'quitar_rol_staff',
+      description: 'Quita un rol de staff de Aeternum a un miembro.',
+      parameters: {
+        type: 'object',
+        properties: {
+          usuario: { type: 'string', description: 'ID o mención del usuario.' },
+          rol:     { type: 'string', description: 'Puesto/rol a quitar.', enum: ['profesor', 'typesetter', 'cleaner', 'traductor', 'editor', 'qc', 'redibujador', 'staff', 'nuevo'] },
+        },
+        required: ['usuario', 'rol'],
+      },
+    },
+  },
 ];
 
 // ── Tools de moderación (disponibles en TODOS los servidores) ────────────────
@@ -799,6 +874,48 @@ function getExecutors(context = {}) {
         logger.error('LumiTools', `subir_raws: ${err.message}`);
         return { error: err.message };
       }
+    },
+
+    // ── Config por proyecto ─────────────────────────────────────────────────
+    configurar_reacciones: async ({ proyecto, emojis } = {}) => {
+      const project = Projects.get(proyecto);
+      if (!project) return { error: `No existe un proyecto con ID "${proyecto}".` };
+      const emojiRegex = /(?:\p{Emoji_Presentation}|\p{Emoji}️|<a?:\w+:\d+>)/gu;
+      const lista = String(emojis || '').match(emojiRegex) || [];
+      if (!lista.length) return { error: 'No detecté emojis válidos.' };
+      project.reactions = lista;
+      Projects.save(project);
+      return { ok: true, mensaje: `Reacciones de "${project.name}" actualizadas: ${lista.join(' ')}`, reacciones: lista };
+    },
+
+    configurar_rol_ping: async ({ proyecto, rol_id } = {}) => {
+      const project = Projects.get(proyecto);
+      if (!project) return { error: `No existe un proyecto con ID "${proyecto}".` };
+      const id = rol_id ? String(rol_id).trim() : null;
+      if (id && !/^\d{17,20}$/.test(id)) return { error: 'El ID de rol no parece válido (deben ser 17-20 dígitos).' };
+      project.readerRoleId = id;
+      Projects.save(project);
+      return { ok: true, mensaje: id ? `Rol de ping de "${project.name}" actualizado.` : `Rol de ping de "${project.name}" eliminado.` };
+    },
+
+    configurar_estancado: async ({ proyecto, dias } = {}) => {
+      const project = Projects.get(proyecto);
+      if (!project) return { error: `No existe un proyecto con ID "${proyecto}".` };
+      const n = parseInt(dias, 10);
+      if (!Number.isFinite(n) || n < 0 || n > 60) return { error: 'Los días deben estar entre 0 y 60 (0 = desactivar).' };
+      project.staleAlertDays = n > 0 ? n : null;
+      Projects.save(project);
+      return { ok: true, mensaje: n > 0 ? `Alerta de estancado de "${project.name}" en ${n} día(s).` : `Alerta de estancado de "${project.name}" desactivada.` };
+    },
+
+    dar_rol_staff: async (args) => {
+      try { return await mod.assignStaffRole({ message: context.message, ...args }); }
+      catch (err) { return { error: err.message }; }
+    },
+
+    quitar_rol_staff: async (args) => {
+      try { return await mod.removeStaffRole({ message: context.message, ...args }); }
+      catch (err) { return { error: err.message }; }
     },
 
     // ── Moderación (disponibles en cualquier servidor) ──────────────────────
