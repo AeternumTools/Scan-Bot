@@ -1,6 +1,7 @@
 // src/services/lumiTools.js
 // Herramientas disponibles para el agente de Lumi (formato OpenAI/Groq tool-use)
 
+const axios     = require('axios');
 const drive     = require('./driveService');
 const colorcito = require('./colorcito');
 const announcer = require('./announcer');
@@ -253,6 +254,67 @@ const ADMIN_DEFINITIONS = [
       name: 'diagnostico_sistema',
       description: 'Autodiagnóstico del bot: conexión a Discord, variables, Google Drive, proyectos y scraper de Colorcito. Úsalo cuando pregunten si algo falla o cómo está "de salud".',
       parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'publicar_aviso',
+      description: 'Publica un aviso oficial de texto en el canal de avisos (lectores o staff según el servidor donde se pide). ACCIÓN PÚBLICA: confirma el contenido con el usuario antes de publicar, sobre todo si lleva @everyone.',
+      parameters: {
+        type: 'object',
+        properties: {
+          titulo:  { type: 'string', description: 'Título del aviso. Ej: "📢 Anuncio Oficial".' },
+          mensaje: { type: 'string', description: 'Cuerpo del aviso. Usa saltos de línea normales.' },
+          ping:    { type: 'string', description: 'A quién mencionar.', enum: ['everyone', 'here', 'none'] },
+          rol_id:  { type: 'string', description: 'ID de un rol específico a mencionar (opcional).' },
+          firma:   { type: 'string', description: 'Firma al pie (opcional). Por defecto: "Líder del equipo de Aeternum Translations".' },
+          imagen:  { type: 'string', description: 'URL directa de una imagen a adjuntar (opcional).' },
+        },
+        required: ['titulo', 'mensaje'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'borrar_archivo_drive',
+      description: 'Borra un archivo de Google Drive por su ID. ACCIÓN DESTRUCTIVA: confirma con el usuario antes de ejecutar.',
+      parameters: {
+        type: 'object',
+        properties: { file_id: { type: 'string', description: 'ID del archivo en Google Drive.' } },
+        required: ['file_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'borrar_raws_proyecto',
+      description: 'Borra las carpetas Raw de capítulos de un proyecto (para liberar espacio). ACCIÓN DESTRUCTIVA: confirma con el usuario antes de ejecutar.',
+      parameters: {
+        type: 'object',
+        properties: {
+          proyecto:  { type: 'string', description: 'ID (slug) del proyecto.' },
+          capitulos: { type: 'string', description: 'Números de capítulo separados por coma. Vacío = TODOS los capítulos del proyecto.' },
+        },
+        required: ['proyecto'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'subir_raws',
+      description: 'Sube a Drive (carpeta Raw del capítulo indicado) las imágenes adjuntas en el MISMO mensaje del usuario. El usuario debe adjuntar las imágenes al mensaje donde te lo pide.',
+      parameters: {
+        type: 'object',
+        properties: {
+          proyecto: { type: 'string', description: 'ID (slug) del proyecto.' },
+          capitulo: { type: 'string', description: 'Número del capítulo (ej: "42" o "42.5").' },
+        },
+        required: ['proyecto', 'capitulo'],
+      },
     },
   },
 ];
@@ -633,6 +695,110 @@ function getExecutors(context = {}) {
 
       const todoOk = !faltan.length && checks.google_drive === 'OK' && (ping >= 0 && ping < 500);
       return { todo_ok: todoOk, checks };
+    },
+
+    // ── Avisos y Drive (secretaria) ─────────────────────────────────────────
+    publicar_aviso: async ({ titulo, mensaje, ping = 'everyone', rol_id, firma, imagen } = {}) => {
+      const { client, message } = context;
+      if (!client?.isReady() || !message?.guild) return { error: 'No tengo contexto de servidor para publicar.' };
+      if (!titulo || !mensaje) return { error: 'Necesito título y mensaje.' };
+
+      const STAFF_GUILD_ID   = process.env.DISCORD_GUILD_ID;
+      const READER_GUILD_ID  = process.env.DISCORD_READER_GUILD_ID;
+      const STAFF_NOTICE_ID  = process.env.STAFF_NOTICE_ID;
+      const READER_NOTICE_ID = process.env.NOTICE_CHANNEL_ID;
+
+      const esStaff   = message.guild.id === STAFF_GUILD_ID;
+      const channelId = esStaff ? STAFF_NOTICE_ID : READER_NOTICE_ID;
+      if (!channelId) return { error: 'No hay canal de avisos configurado para este servidor.' };
+
+      let channel = null;
+      if (esStaff) {
+        channel = await message.guild.channels.fetch(channelId).catch(() => null);
+      } else if (READER_GUILD_ID) {
+        const g = await client.guilds.fetch(READER_GUILD_ID).catch(() => null);
+        if (g) channel = await g.channels.fetch(channelId).catch(() => null);
+      }
+      if (!channel) return { error: 'No pude acceder al canal de avisos.' };
+
+      const lines = [];
+      if (ping === 'everyone') lines.push('@everyone');
+      else if (ping === 'here') lines.push('@here');
+      if (rol_id) lines.push(`<@&${rol_id}>`);
+      lines.push('', `## ${titulo}`, '', String(mensaje).replace(/\\n/g, '\n'), '',
+        'Atentamente,', `**${firma || 'Líder del equipo de Aeternum Translations.'}**`);
+
+      const allowedMentions = { parse: [], roles: [] };
+      if (ping === 'everyone' || ping === 'here') allowedMentions.parse.push('everyone');
+      if (rol_id) allowedMentions.roles.push(rol_id);
+
+      const payload = { content: lines.join('\n'), allowedMentions };
+      if (imagen) payload.files = [{ attachment: imagen, name: 'imagen.jpg' }];
+
+      try {
+        await channel.send(payload);
+        return { ok: true, mensaje: `Aviso publicado en #${channel.name}.` };
+      } catch (err) {
+        logger.error('LumiTools', `publicar_aviso: ${err.message}`);
+        return { error: err.message };
+      }
+    },
+
+    borrar_archivo_drive: async ({ file_id } = {}) => {
+      if (!file_id) return { error: 'Necesito el ID del archivo.' };
+      try {
+        await drive.deleteFile(file_id);
+        return { ok: true, mensaje: `Archivo ${file_id} borrado de Drive.` };
+      } catch (err) {
+        logger.error('LumiTools', `borrar_archivo_drive: ${err.message}`);
+        return { error: err.message };
+      }
+    },
+
+    borrar_raws_proyecto: async ({ proyecto, capitulos } = {}) => {
+      const project = Projects.get(proyecto);
+      if (!project) return { error: `No existe un proyecto con ID "${proyecto}".` };
+      const nums = capitulos ? String(capitulos).split(',').map(s => s.trim()).filter(Boolean) : [];
+      try {
+        const r = await drive.deleteRawsFromProject(project.driveFolder, project.category, nums);
+        return { ok: true, borradas: r.deleted, omitidas: r.skipped,
+          mensaje: `Raws borradas: ${r.deleted}${nums.length ? ` (caps: ${nums.join(', ')})` : ' (todos)'}.` };
+      } catch (err) {
+        logger.error('LumiTools', `borrar_raws_proyecto: ${err.message}`);
+        return { error: err.message };
+      }
+    },
+
+    subir_raws: async ({ proyecto, capitulo } = {}) => {
+      const { message } = context;
+      const project = Projects.get(proyecto);
+      if (!project) return { error: `No existe un proyecto con ID "${proyecto}".` };
+      if (!capitulo) return { error: 'Necesito el número de capítulo.' };
+
+      const adjuntos = [...(message?.attachments?.values?.() || [])]
+        .filter(a => (a.contentType || '').startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(a.name || ''));
+      if (!adjuntos.length) return { error: 'No veo imágenes adjuntas en tu mensaje. Adjunta las raws e inténtalo de nuevo.' };
+
+      const images = [];
+      for (const a of adjuntos) {
+        try {
+          const res = await axios.get(a.url, { responseType: 'arraybuffer', timeout: 30_000 });
+          images.push({ name: a.name || `raw_${images.length + 1}.jpg`, buffer: Buffer.from(res.data), mimeType: a.contentType || 'image/jpeg' });
+        } catch (err) {
+          logger.error('LumiTools', `subir_raws descarga: ${err.message}`);
+        }
+      }
+      if (!images.length) return { error: 'No pude descargar las imágenes adjuntas.' };
+
+      try {
+        const r = await drive.uploadRawImages(project.driveFolder, project.category, String(capitulo), images);
+        return { ok: r.success, subidas: r.uploaded, total: r.total, capitulo_creado: r.chapterCreated,
+          aviso_almacenamiento: r.storageWarning ? `Drive al ${r.storagePercent}%` : null,
+          mensaje: `Subí ${r.uploaded}/${r.total} imagen(es) a la Raw del cap. ${capitulo} de "${project.name}".` };
+      } catch (err) {
+        logger.error('LumiTools', `subir_raws: ${err.message}`);
+        return { error: err.message };
+      }
     },
 
     // ── Moderación (disponibles en cualquier servidor) ──────────────────────
