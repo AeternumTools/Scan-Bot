@@ -8,6 +8,7 @@ const announcer = require('./announcer');
 const railway   = require('./railwayService');
 const mod       = require('./modService');
 const monitor   = require('./monitor');
+const seriesRoles = require('./seriesRolesService');
 const { Projects, LastChapters } = require('../utils/storage');
 const logger    = require('../utils/logger');
 
@@ -389,6 +390,48 @@ const ADMIN_DEFINITIONS = [
           rol:     { type: 'string', description: 'Puesto/rol a quitar.', enum: ['profesor', 'typesetter', 'cleaner', 'traductor', 'editor', 'qc', 'redibujador', 'staff', 'nuevo'] },
         },
         required: ['usuario', 'rol'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'crear_rol_serie',
+      description: 'Crea un rol de Discord para una serie en el servidor de LECTORES y lo vincula al proyecto, con un emoji para el panel de roles. Después usa publicar_mensaje_roles para actualizar el panel.',
+      parameters: {
+        type: 'object',
+        properties: {
+          proyecto: { type: 'string', description: 'ID (slug) del proyecto.' },
+          emoji:    { type: 'string', description: 'Emoji para el panel de roles (unicode o custom <:nombre:id>).' },
+        },
+        required: ['proyecto', 'emoji'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'publicar_mensaje_roles',
+      description: 'Publica o actualiza el mensaje del panel de roles por reacción en el canal de lectores, sincronizando las reacciones. ACCIÓN PÚBLICA: confirma antes de ejecutar.',
+      parameters: {
+        type: 'object',
+        properties: {
+          imagen:      { type: 'string', description: 'URL de imagen a adjuntar (opcional).' },
+          emoji_todas: { type: 'string', description: 'Emoji para el rol "Todas las series" (opcional, se guarda).' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'quitar_rol_serie',
+      description: 'Quita un proyecto del panel de roles por reacción. Después republica el mensaje con publicar_mensaje_roles.',
+      parameters: {
+        type: 'object',
+        properties: { proyecto: { type: 'string', description: 'ID (slug) del proyecto.' } },
+        required: ['proyecto'],
       },
     },
   },
@@ -916,6 +959,26 @@ function getExecutors(context = {}) {
     quitar_rol_staff: async (args) => {
       try { return await mod.removeStaffRole({ message: context.message, ...args }); }
       catch (err) { return { error: err.message }; }
+    },
+
+    // ── Roles de series (panel por reacción) ────────────────────────────────
+    crear_rol_serie: async ({ proyecto, emoji } = {}) => {
+      const { client } = context;
+      if (!client?.isReady()) return { error: 'El cliente de Discord no está disponible.' };
+      try { return await seriesRoles.crearRolSerie(client, proyecto, emoji, { actor: 'Lumi' }); }
+      catch (err) { logger.error('LumiTools', `crear_rol_serie: ${err.message}`); return { error: err.message }; }
+    },
+
+    publicar_mensaje_roles: async ({ imagen, emoji_todas } = {}) => {
+      const { client } = context;
+      if (!client?.isReady()) return { error: 'El cliente de Discord no está disponible.' };
+      try { return await seriesRoles.publicarMensajeRoles(client, { imagen: imagen || null, emojiTodas: emoji_todas || null }); }
+      catch (err) { logger.error('LumiTools', `publicar_mensaje_roles: ${err.message}`); return { error: err.message }; }
+    },
+
+    quitar_rol_serie: async ({ proyecto } = {}) => {
+      try { return await seriesRoles.quitarRolSerie(proyecto); }
+      catch (err) { logger.error('LumiTools', `quitar_rol_serie: ${err.message}`); return { error: err.message }; }
     },
 
     // ── Moderación (disponibles en cualquier servidor) ──────────────────────
